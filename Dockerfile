@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 # Useful tools for debugging & typical workflows
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl git jq make openssh-client ripgrep \
+    bash ca-certificates curl git jq make openssh-client ripgrep opam \
     iputils-ping dnsutils netcat-traditional procps gnupg \
   && rm -rf /var/lib/apt/lists/*
 
