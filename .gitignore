@@ -29,4 +29,4 @@ Thumbs.db
 # Intentionally unsafe SSH-in-image staging directory:
 # keep instructions tracked, ignore any actual key material.
 docker_ssh/*
-!docker_ssh/README.md
+!docker_ssh/.gitkeep

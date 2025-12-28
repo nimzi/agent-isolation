@@ -24,9 +24,24 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 You asked to **embed your SSH keys into the container image** so `git` (and GitHub SSH) work from inside the container.
 
-**Security warning:** this is dangerous. Anyone who can access the built image (or build cache/layers) can extract your private keys.
+**Security warning:** putting private keys into an image is dangerous:
 
-Do it anyway:
+- Anyone with the image (or access to your Docker registry / cache) can extract your keys.
+- Keys may persist in build caches and image layers.
+- Rotating keys later requires rebuilding and ensuring old images are deleted everywhere.
+
+Treat this image as **highly sensitive**.
+
+#### What to put in `docker_ssh/` (on the host)
+
+Copy the SSH material you want baked into the image into the `docker_ssh/` folder, for example:
+
+- `id_ed25519` (private key)
+- `id_ed25519.pub` (public key)
+- `known_hosts` (optional; the entrypoint also adds GitHub host keys)
+- `config` (optional)
+
+#### Build/rebuild (bakes keys into the image)
 
 ```bash
 mkdir -p docker_ssh
@@ -39,7 +54,7 @@ cp -a "$HOME/.ssh/config" docker_ssh/ 2>/dev/null || true
 
 Notes:
 - Keys are baked into the image under `/image_ssh/` and copied into `/root/.ssh` at container start (because this repo mounts a persistent volume on `/root`).
-- The folder `docker_ssh/` is ignored by git (only `docker_ssh/README.md` is tracked).
+- The folder `docker_ssh/` is ignored by git (this repo tracks only a placeholder file to keep the directory present for Docker builds).
 
 **Cursor Agent CLI Authentication:**
 

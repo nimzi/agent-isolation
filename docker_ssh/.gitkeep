@@ -1,0 +1,4 @@
+This file exists only to keep the docker_ssh/ directory in git.
+
+Do not commit private keys. Any real SSH material should be placed here locally
+and will be ignored by git.
