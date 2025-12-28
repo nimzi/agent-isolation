@@ -14,10 +14,28 @@ An AI-powered interactive shell assistant that runs commands inside a Docker con
 
 ### 1. Environment Variables
 
-Create a `.env` file in this directory with your API keys:
+Create a `.env` file in this directory with your API keys/tokens:
 
 ```bash
 OPENAI_API_KEY=sk-your-openai-api-key
+GH_TOKEN=github_pat_your_token_here
+```
+
+#### GitHub CLI auth via `GH_TOKEN` (recommended)
+
+If `GH_TOKEN` is present, `gh` will authenticate non-interactively inside the container.
+
+How to create a token on the host:
+
+- Create a GitHub token in **GitHub Settings → Developer settings → Personal access tokens** ([classic tokens](https://github.com/settings/tokens) or [fine-grained tokens](https://github.com/settings/personal-access-tokens)).
+- For private repos, ensure the token can access them (classic token commonly needs `repo`; fine-grained token needs access to the target repos).
+- Put it in `.env` as `GH_TOKEN=...` and recreate the container (`./recreate-container.sh`) so the new env var is injected.
+
+Quick smoke test (inside the container):
+
+```bash
+gh auth status
+gh api user --jq .login
 ```
 
 ### (Unsafe) Bake SSH keys into the container image (for Git/GitHub)
