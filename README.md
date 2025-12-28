@@ -1,6 +1,6 @@
-# OpenAI in Docker
+# OpenAI and Cursor agent in Docker
 
-An AI-powered interactive shell assistant that runs commands inside a Docker container, powered by OpenAI's API.
+An AI-powered interactive shell assistant that runs commands inside a Docker container, powered by OpenAI's API and Cursor CLI.
 
 ## Features
 
@@ -40,7 +40,7 @@ gh api user --jq .login
 
 ### (Unsafe) Bake SSH keys into the container image (for Git/GitHub)
 
-You asked to **embed your SSH keys into the container image** so `git` (and GitHub SSH) work from inside the container.
+Criminally embedding ssh keys from the host so `git` (and GitHub SSH) work from inside the container.
 
 **Security warning:** putting private keys into an image is dangerous:
 
@@ -183,7 +183,7 @@ The container persists data in two locations:
 
 ## Usage
 
-1. Run `python3 ai_docker_shell.py`
+1. Run `python3 ai_docker_shell.py` on the host
 2. Enter your goal (e.g., "install Node.js and create a hello world script")
 3. Review and approve commands one at a time
 4. Continue or change goals as needed
