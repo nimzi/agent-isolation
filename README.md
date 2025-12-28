@@ -20,6 +20,27 @@ Create a `.env` file in this directory with your API keys:
 OPENAI_API_KEY=sk-your-openai-api-key
 ```
 
+### (Unsafe) Bake SSH keys into the container image (for Git/GitHub)
+
+You asked to **embed your SSH keys into the container image** so `git` (and GitHub SSH) work from inside the container.
+
+**Security warning:** this is dangerous. Anyone who can access the built image (or build cache/layers) can extract your private keys.
+
+Do it anyway:
+
+```bash
+mkdir -p docker_ssh
+cp -a "$HOME/.ssh/id_ed25519" docker_ssh/
+cp -a "$HOME/.ssh/id_ed25519.pub" docker_ssh/
+cp -a "$HOME/.ssh/known_hosts" docker_ssh/ 2>/dev/null || true
+cp -a "$HOME/.ssh/config" docker_ssh/ 2>/dev/null || true
+./recreate-container.sh
+```
+
+Notes:
+- Keys are baked into the image under `/image_ssh/` and copied into `/root/.ssh` at container start (because this repo mounts a persistent volume on `/root`).
+- The folder `docker_ssh/` is ignored by git (only `docker_ssh/README.md` is tracked).
+
 **Cursor Agent CLI Authentication:**
 
 Cursor Agent CLI uses credentials from your host machine's Cursor installation. Authentication works by mounting your Cursor config directory:
@@ -112,6 +133,11 @@ python3 ai_docker_shell.py
 - Credentials mounted from `$HOME/.config/cursor` on host to `/root/.config/cursor` in container
 - Requires Cursor to be installed and configured on your host machine
 - Credentials are read-only mounted (changes in container don't affect host)
+
+### Git + GitHub CLI (inside container)
+
+- `git` is available in the image.
+- `gh` (GitHub CLI) is installed in the image, but it still needs authentication for API operations (typically `gh auth login` inside the container or setting `GH_TOKEN`).
 
 ## Container State
 
