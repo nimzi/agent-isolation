@@ -35,9 +35,9 @@ RUN set -eu; \
 COPY container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
 RUN chmod +x /usr/local/bin/container-entrypoint.sh
 
-# Note: cursor-agent CLI is installed in recreate-container.sh after container creation
+# Note: cursor-agent CLI is installed by ./ai-shell recreate after container creation
 # This is because /root is mounted as a volume, which would overwrite the installation
-# Installing it in the recreate script ensures it persists in the volume
+# Installing it after container creation ensures it persists in the /root volume
 
 # Keep container running - use tail to prevent immediate exit
 ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh"]

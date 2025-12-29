@@ -25,7 +25,7 @@ You should see files like:
 
 ### Step 3: Container Setup
 
-The `recreate-container.sh` script automatically mounts your credentials:
+The `ai-shell recreate` command automatically mounts your credentials:
 ```bash
 -v $HOME/.config/cursor:/root/.config/cursor
 ```

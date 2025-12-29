@@ -61,7 +61,7 @@ cp -a "$HOME/.ssh/id_ed25519" docker_ssh/
 cp -a "$HOME/.ssh/id_ed25519.pub" docker_ssh/
 cp -a "$HOME/.ssh/known_hosts" docker_ssh/ 2>/dev/null || true
 cp -a "$HOME/.ssh/config" docker_ssh/ 2>/dev/null || true
-./recreate-container.sh
+./ai-shell recreate
 ```
 
 Notes:
@@ -72,7 +72,7 @@ Notes:
 
 **First time setup:**
 ```bash
-./recreate-container.sh
+./ai-shell recreate
 ```
 
 This script will:
@@ -99,15 +99,14 @@ docker run -d \
 
 ## Container control script
 
-The `container-control.sh` script provides a convenient way to start or stop the Docker container without rebuilding it. This is useful for managing the container lifecycle after initial setup.
+The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter the container.
 
 **Usage:**
 ```bash
-# Start the container
-./container-control.sh start
-
-# Stop the container
-./container-control.sh stop
+./ai-shell --help
+./ai-shell status
+./ai-shell stop
+./ai-shell start
 ```
 
 **Features:**
@@ -116,12 +115,12 @@ The `container-control.sh` script provides a convenient way to start or stop the
 - Provides clear error messages if the container doesn't exist or operations fail
 - Respects the `AI_SHELL_CONTAINER` environment variable for custom container names
 
-**Note:** If the container doesn't exist, you'll need to run `./recreate-container.sh` first to create it.
+**Note:** If the container doesn't exist, run `./ai-shell recreate` first to create it.
 
 ## Use
 
 ```bash
-./enter-container.sh
+./ai-shell enter
 # then inside the container:
 cursor-agent --help
 ```
@@ -146,7 +145,7 @@ The container persists data in two locations:
 1. **Project directory** (`/work`): Files created here appear in your local directory
 2. **Docker volume** (`ai_agent_shell_home` → `/root`): Home directory, configs, and installed packages
 
-**Important:** When rebuilding the image, your volume data persists. Use `./recreate-container.sh` to rebuild while preserving your data.
+**Important:** When rebuilding the image, your volume data persists. Use `./ai-shell recreate` to rebuild while preserving your data.
 
 ## Configuration
 
