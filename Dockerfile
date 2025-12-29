@@ -13,8 +13,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 WORKDIR /work
 
-# Install OpenAI SDK + helpers
-RUN pip install --no-cache-dir openai python-dotenv rich
+# (No API-provider tooling.) Python is kept for general scripting convenience.
 
 # Intentionally unsafe (by request): bake SSH keys into the image.
 # We store them outside /root because /root is typically a mounted volume at runtime.

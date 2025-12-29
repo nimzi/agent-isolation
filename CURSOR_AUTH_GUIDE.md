@@ -36,8 +36,8 @@ This mounts your host's Cursor config directory to the container's config locati
 
 After creating the container, verify credentials are accessible:
 ```bash
-docker exec openai-shell ls -la /root/.config/cursor/
-docker exec openai-shell cursor --help
+docker exec ai-agent-shell ls -la /root/.config/cursor/
+docker exec ai-agent-shell cursor-agent --help
 ```
 
 ### How It Works
@@ -66,13 +66,13 @@ docker exec openai-shell cursor --help
 
 2. **Verify mount in container:**
    ```bash
-   docker exec openai-shell ls -la /root/.config/cursor/
+   docker exec ai-agent-shell ls -la /root/.config/cursor/
    ```
    Should show the same files as on host.
 
 3. **Check container creation:**
    ```bash
-   docker inspect openai-shell | grep -A 5 Mounts
+   docker inspect ai-agent-shell | grep -A 5 Mounts
    ```
    Should show the cursor config mount.
 
@@ -85,10 +85,10 @@ docker exec openai-shell cursor --help
 If creating manually, don't forget the mount:
 ```bash
 docker run -d \
-    --name openai-shell \
+    --name ai-agent-shell \
     -v $(pwd):/work \
-    -v openai_shell_home:/root \
+    -v ai_agent_shell_home:/root \
     -v $HOME/.config/cursor:/root/.config/cursor \
     --env-file .env \
-    openai-shell
+    ai-agent-shell
 ```

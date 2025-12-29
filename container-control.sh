@@ -3,7 +3,7 @@
 
 set -e
 
-CONTAINER_NAME="${OAI_SHELL_CONTAINER:-openai-shell}"
+CONTAINER_NAME="${AI_SHELL_CONTAINER:-ai-agent-shell}"
 
 # Function to check if container exists
 container_exists() {
@@ -81,7 +81,7 @@ case "${1:-}" in
         echo "  stop   - Stop the Docker container" >&2
         echo "" >&2
         echo "Container name: $CONTAINER_NAME" >&2
-        echo "(Override with OAI_SHELL_CONTAINER environment variable)" >&2
+        echo "(Override with AI_SHELL_CONTAINER environment variable)" >&2
         exit 1
         ;;
 esac

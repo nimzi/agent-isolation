@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script to launch an interactive bash session in the container
 
-CONTAINER_NAME="${OAI_SHELL_CONTAINER:-openai-shell}"
+CONTAINER_NAME="${AI_SHELL_CONTAINER:-ai-agent-shell}"
 
 # Check if container exists
 if ! docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then

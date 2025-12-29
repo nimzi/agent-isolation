@@ -3,14 +3,16 @@
 
 set -e
 
-CONTAINER_NAME="${OAI_SHELL_CONTAINER:-openai-shell}"
-IMAGE_NAME="${OAI_SHELL_IMAGE:-openai-shell}"
-VOLUME_NAME="${OAI_SHELL_VOLUME:-openai_shell_home}"
+CONTAINER_NAME="${AI_SHELL_CONTAINER:-ai-agent-shell}"
+IMAGE_NAME="${AI_SHELL_IMAGE:-ai-agent-shell}"
+VOLUME_NAME="${AI_SHELL_VOLUME:-ai_agent_shell_home}"
 
-# Check if .env file exists
-if [ ! -f .env ]; then
-    echo "Error: .env file not found!"
-    exit 1
+ENV_FILE_ARGS=()
+if [ -f .env ]; then
+  ENV_FILE_ARGS=(--env-file .env)
+else
+  echo "Note: No .env found (this is fine)."
+  echo "      If you want non-interactive GitHub auth for 'gh', create .env with: GH_TOKEN=..."
 fi
 
 echo "Stopping and removing existing container (if it exists)..."
@@ -20,7 +22,7 @@ docker rm "$CONTAINER_NAME" 2>/dev/null || true
 echo "Building Docker image..."
 docker build -t "$IMAGE_NAME" .
 
-echo "Creating new container with environment variables from .env..."
+echo "Creating new container..."
 
 # Ensure Cursor config directory exists on host
 CURSOR_CONFIG_DIR="$HOME/.config/cursor"
@@ -47,7 +49,7 @@ docker run -d \
     -v "$(pwd):/work" \
     -v "$VOLUME_NAME:/root" \
     -v "$CURSOR_CONFIG_DIR:/root/.config/cursor" \
-    --env-file .env \
+    "${ENV_FILE_ARGS[@]}" \
     "$IMAGE_NAME"
 
 echo "Container '$CONTAINER_NAME' created and started!"
@@ -64,4 +66,4 @@ else
     echo "cursor-agent already installed."
 fi
 
-echo "You can now use: python3 ai_docker_shell.py"
+echo "You can now use: ./enter-container.sh"
