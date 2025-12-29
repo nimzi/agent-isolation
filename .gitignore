@@ -26,7 +26,10 @@ Thumbs.db
 # Docker
 *.log
 
+# Go build outputs
+ai-shell-go
+
 # Intentionally unsafe SSH-in-image staging directory:
 # keep instructions tracked, ignore any actual key material.
-docker_ssh/*
-!docker_ssh/.gitkeep
+docker/docker_ssh/*
+!docker/docker_ssh/.gitkeep

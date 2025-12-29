@@ -44,9 +44,9 @@ Criminally embedding ssh keys from the host so `git` (and GitHub SSH) work from 
 
 Treat this image as **highly sensitive**.
 
-#### What to put in `docker_ssh/` (on the host)
+#### What to put in `docker/docker_ssh/` (on the host)
 
-Copy the SSH material you want baked into the image into the `docker_ssh/` folder, for example:
+Copy the SSH material you want baked into the image into the `docker/docker_ssh/` folder, for example:
 
 - `id_ed25519` (private key)
 - `id_ed25519.pub` (public key)
@@ -56,17 +56,17 @@ Copy the SSH material you want baked into the image into the `docker_ssh/` folde
 #### Build/rebuild (bakes keys into the image)
 
 ```bash
-mkdir -p docker_ssh
-cp -a "$HOME/.ssh/id_ed25519" docker_ssh/
-cp -a "$HOME/.ssh/id_ed25519.pub" docker_ssh/
-cp -a "$HOME/.ssh/known_hosts" docker_ssh/ 2>/dev/null || true
-cp -a "$HOME/.ssh/config" docker_ssh/ 2>/dev/null || true
+mkdir -p docker/docker_ssh
+cp -a "$HOME/.ssh/id_ed25519" docker/docker_ssh/
+cp -a "$HOME/.ssh/id_ed25519.pub" docker/docker_ssh/
+cp -a "$HOME/.ssh/known_hosts" docker/docker_ssh/ 2>/dev/null || true
+cp -a "$HOME/.ssh/config" docker/docker_ssh/ 2>/dev/null || true
 ./ai-shell up --recreate
 ```
 
 Notes:
 - Keys are baked into the image under `/image_ssh/` and copied into `/root/.ssh` at container start (because this repo mounts a persistent volume on `/root`).
-- The folder `docker_ssh/` is ignored by git (this repo tracks only a placeholder file to keep the directory present for Docker builds).
+- The folder `docker/docker_ssh/` is ignored by git (this repo tracks only a placeholder file to keep the directory present for Docker builds).
 
 ## Build and run
 
@@ -74,6 +74,8 @@ Notes:
 ```bash
 ./ai-shell up
 ```
+
+By default `./ai-shell` prefers the Go implementation (`ai-shell-go`) if installed, and falls back to the legacy Python implementation (`legacy/ai-shell.py`).
 
 This script will:
 - Build the Docker image (includes Node.js + tooling for Cursor Agent CLI)
@@ -99,7 +101,7 @@ Examples:
 **Or manually:**
 ```bash
 # Build the image
-docker build -t ai-agent-shell .
+docker build -t ai-agent-shell -f docker/Dockerfile docker
 
 # Create and start the container
 docker run -d \
