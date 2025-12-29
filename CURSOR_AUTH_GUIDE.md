@@ -36,8 +36,8 @@ This mounts your host's Cursor config directory to the container's config locati
 
 After creating the container, verify credentials are accessible:
 ```bash
-./ai-shell up
-./ai-shell check
+ai-shell up --home "$(pwd)"
+ai-shell check --home "$(pwd)"
 ```
 
 ### How It Works
@@ -72,7 +72,7 @@ After creating the container, verify credentials are accessible:
 
 3. **Check container creation:**
    ```bash
-   ./ai-shell status
+   ai-shell status --home "$(pwd)"
    ```
    Should show the cursor config mount and the derived container name.
 

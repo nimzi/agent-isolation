@@ -27,7 +27,8 @@ Thumbs.db
 *.log
 
 # Go build outputs
-ai-shell-go
+bin/
+/ai-shell
 
 # Intentionally unsafe SSH-in-image staging directory:
 # keep instructions tracked, ignore any actual key material.

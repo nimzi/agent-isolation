@@ -2,12 +2,13 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 
 GO ?= go
-BIN_NAME ?= ai-shell-go
-PKG ?= ./cmd/ai-shell-go
+BIN_NAME ?= ai-shell
+PKG ?= ./cmd/ai-shell
 
 .PHONY: build
 build:
-	$(GO) build -o $(BIN_NAME) $(PKG)
+	install -d "bin"
+	$(GO) build -o "bin/$(BIN_NAME)" $(PKG)
 
 .PHONY: fmt
 fmt:
@@ -21,8 +22,12 @@ tidy:
 install:
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	$(GO) build -o "$(DESTDIR)$(PREFIX)/bin/$(BIN_NAME)" $(PKG)
+	install -d "$(DESTDIR)$(PREFIX)/share/ai-shell"
+	rm -rf "$(DESTDIR)$(PREFIX)/share/ai-shell/docker"
+	cp -a docker "$(DESTDIR)$(PREFIX)/share/ai-shell/"
 
 .PHONY: uninstall
 uninstall:
 	rm -f "$(DESTDIR)$(PREFIX)/bin/$(BIN_NAME)"
+	rm -rf "$(DESTDIR)$(PREFIX)/share/ai-shell"
 

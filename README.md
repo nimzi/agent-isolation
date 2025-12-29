@@ -61,7 +61,7 @@ cp -a "$HOME/.ssh/id_ed25519" docker/docker_ssh/
 cp -a "$HOME/.ssh/id_ed25519.pub" docker/docker_ssh/
 cp -a "$HOME/.ssh/known_hosts" docker/docker_ssh/ 2>/dev/null || true
 cp -a "$HOME/.ssh/config" docker/docker_ssh/ 2>/dev/null || true
-./ai-shell up --recreate
+ai-shell up --recreate --home "$(pwd)"
 ```
 
 Notes:
@@ -70,12 +70,33 @@ Notes:
 
 ## Build and run
 
-**First time setup:**
+### Install
+
+Systemwide:
+
 ```bash
-./ai-shell up
+make install
 ```
 
-By default `./ai-shell` prefers the Go implementation (`ai-shell-go`) if installed, and falls back to the legacy Python implementation (`legacy/ai-shell.py`).
+User install:
+
+```bash
+make install PREFIX="$HOME/.local"
+```
+
+### Dev
+
+```bash
+make build
+./bin/ai-shell --help
+```
+
+### Run
+
+**First time setup (builds image, creates container, installs cursor-agent):**
+```bash
+ai-shell up --home "$(pwd)"
+```
 
 This script will:
 - Build the Docker image (includes Node.js + tooling for Cursor Agent CLI)
@@ -92,10 +113,10 @@ Examples:
 
 ```bash
 # Create/start an instance for some other project folder
-./ai-shell up --workdir /path/to/project
+ai-shell up --home "$(pwd)" --workdir /path/to/project
 
 # List all managed instances
-./ai-shell ls
+ai-shell ls
 ```
 
 **Or manually:**
@@ -119,11 +140,11 @@ The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter th
 
 **Usage:**
 ```bash
-./ai-shell --help
-./ai-shell status
-./ai-shell stop     # affects current directory's instance
-./ai-shell start    # affects current directory's instance
-./ai-shell stop --workdir /path/to/project
+ai-shell --help
+ai-shell status --home "$(pwd)"
+ai-shell stop --home "$(pwd)"     # affects current directory's instance
+ai-shell start --home "$(pwd)"    # affects current directory's instance
+ai-shell stop --home "$(pwd)" --workdir /path/to/project
 ```
 
 **Features:**
@@ -132,12 +153,12 @@ The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter th
 - Provides clear error messages if the container doesn't exist or operations fail
 - Respects the `AI_SHELL_CONTAINER` environment variable for custom container names
 
-**Note:** If the container doesn't exist, run `./ai-shell up` first to create it.
+**Note:** If the container doesn't exist, run `ai-shell up --home "$(pwd)"` first to create it.
 
 ## Use
 
 ```bash
-./ai-shell enter
+ai-shell enter --home "$(pwd)"
 # then inside the container:
 cursor-agent --help
 ```
@@ -162,7 +183,7 @@ The container persists data in two locations:
 1. **Project directory** (`/work`): Files created here appear in your local directory
 2. **Docker volume** (`ai_agent_shell_home` → `/root`): Home directory, configs, and installed packages
 
-**Important:** When rebuilding the image, your volume data persists. Use `./ai-shell up --recreate` to rebuild while preserving your data.
+**Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate --home "$(pwd)"` to rebuild while preserving your data.
 
 ## Configuration
 

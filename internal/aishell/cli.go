@@ -33,8 +33,8 @@ func newRootCmd() *cobra.Command {
 	cfg := &Config{}
 
 	root := &cobra.Command{
-		Use:   "ai-shell-go",
-		Short: "Manage per-workdir ai-shell Docker containers (Go implementation)",
+		Use:   "ai-shell",
+		Short: "Manage per-workdir ai-shell Docker containers",
 		Long: strings.TrimSpace(`
 Manage per-workdir ai-shell Docker containers.
 
@@ -50,7 +50,7 @@ Defaults can be overridden via env vars:
 	}
 
 	root.PersistentFlags().StringVar(&cfg.Workdir, "workdir", "", "Target workdir (default: current directory)")
-	root.PersistentFlags().StringVar(&cfg.Home, "home", "", "Build context directory containing Dockerfile (or set AI_SHELL_HOME)")
+	root.PersistentFlags().StringVar(&cfg.Home, "home", "", "Repo/build context home used to find docker/Dockerfile (or set AI_SHELL_HOME)")
 	root.PersistentFlags().StringVar(&cfg.ContainerBase, "container-base", "", "Container base name (overrides AI_SHELL_CONTAINER)")
 	root.PersistentFlags().StringVar(&cfg.Image, "image", "", "Image name (overrides AI_SHELL_IMAGE)")
 	root.PersistentFlags().StringVar(&cfg.VolumeBase, "volume-base", "", "Volume base name for /root (overrides AI_SHELL_VOLUME)")
@@ -87,25 +87,57 @@ func resolveInstance(cfg *Config) (workdir, instanceID, container, image, volume
 }
 
 func resolveHome(cfg *Config) (string, error) {
-	// Priority: flag > env > cwd if Dockerfile present > executable dir if Dockerfile present
+	// Priority: flag > env > cwd if (docker/)Dockerfile present > executable dir if (docker/)Dockerfile present > install share dir
 	if strings.TrimSpace(cfg.Home) != "" {
 		return filepath.Abs(expandUser(cfg.Home))
 	}
 	if env := strings.TrimSpace(os.Getenv("AI_SHELL_HOME")); env != "" {
 		return filepath.Abs(expandUser(env))
 	}
+
+	hasDockerfile := func(home string) bool {
+		if _, err := os.Stat(filepath.Join(home, "docker", "Dockerfile")); err == nil {
+			return true
+		}
+		if _, err := os.Stat(filepath.Join(home, "Dockerfile")); err == nil {
+			return true
+		}
+		return false
+	}
+
 	if wd, err := os.Getwd(); err == nil {
-		if _, err := os.Stat(filepath.Join(wd, "Dockerfile")); err == nil {
-			return wd, nil
+		if abs, err := filepath.Abs(wd); err == nil && hasDockerfile(abs) {
+			return abs, nil
 		}
 	}
 	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
+		if dir, err := filepath.Abs(filepath.Dir(exe)); err == nil && hasDockerfile(dir) {
 			return dir, nil
 		}
 	}
-	return "", errors.New("cannot locate Docker build context; set --home or AI_SHELL_HOME to a directory containing Dockerfile")
+
+	// Default locations for installed Docker build assets.
+	// These are populated by `make install` into $(PREFIX)/share/ai-shell.
+	if xdg := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); xdg != "" {
+		if home := filepath.Join(expandUser(xdg), "ai-shell"); hasDockerfile(home) {
+			return home, nil
+		}
+	}
+	if homeEnv := strings.TrimSpace(os.Getenv("HOME")); homeEnv != "" {
+		if home := filepath.Join(expandUser(homeEnv), ".local", "share", "ai-shell"); hasDockerfile(home) {
+			return home, nil
+		}
+	}
+	for _, home := range []string{
+		"/usr/local/share/ai-shell",
+		"/usr/share/ai-shell",
+	} {
+		if hasDockerfile(home) {
+			return home, nil
+		}
+	}
+
+	return "", errors.New("cannot locate Docker build context; set --home / AI_SHELL_HOME or install assets to /usr/local/share/ai-shell (or ~/.local/share/ai-shell)")
 }
 
 func resolveDockerDir(home string) (string, error) {
@@ -324,7 +356,7 @@ func newStartCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s (run: ai-shell-go up)", workdir)
+				return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
 			}
 			if err := requireManaged(d, container, workdir); err != nil {
 				return err
@@ -427,7 +459,7 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s (run: ai-shell-go up)", workdir)
+				return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
 			}
 			if err := requireManaged(d, container, workdir); err != nil {
 				return err
@@ -468,17 +500,17 @@ func newCheckCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s (run: ai-shell-go up)", workdir)
+				return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
 			}
 			if err := requireManaged(d, container, workdir); err != nil {
 				return err
 			}
 			if !d.ContainerRunning(container) {
-				return fmt.Errorf("container is not running: %s (run: ai-shell-go start)", container)
+				return fmt.Errorf("container is not running: %s (run: ai-shell start)", container)
 			}
 
 			if _, err := d.ExecCapture(container, "command -v cursor-agent && cursor-agent --help | head -30"); err != nil {
-				return fmt.Errorf("cursor-agent not found (run: ai-shell-go up)")
+				return fmt.Errorf("cursor-agent not found (run: ai-shell up)")
 			}
 			fmt.Println("OK: cursor-agent is installed.")
 
