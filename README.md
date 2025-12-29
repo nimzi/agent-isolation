@@ -61,7 +61,7 @@ cp -a "$HOME/.ssh/id_ed25519" docker_ssh/
 cp -a "$HOME/.ssh/id_ed25519.pub" docker_ssh/
 cp -a "$HOME/.ssh/known_hosts" docker_ssh/ 2>/dev/null || true
 cp -a "$HOME/.ssh/config" docker_ssh/ 2>/dev/null || true
-./ai-shell recreate
+./ai-shell up --recreate
 ```
 
 Notes:
@@ -72,7 +72,7 @@ Notes:
 
 **First time setup:**
 ```bash
-./ai-shell recreate
+./ai-shell up
 ```
 
 This script will:
@@ -81,6 +81,20 @@ This script will:
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor`
+
+### Multiple workdirs (multiple containers)
+
+Each **workdir** gets its own container + `/root` volume. The container/volume names are derived from the canonical (absolute) workdir path.
+
+Examples:
+
+```bash
+# Create/start an instance for some other project folder
+./ai-shell up --workdir /path/to/project
+
+# List all managed instances
+./ai-shell ls
+```
 
 **Or manually:**
 ```bash
@@ -105,8 +119,9 @@ The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter th
 ```bash
 ./ai-shell --help
 ./ai-shell status
-./ai-shell stop
-./ai-shell start
+./ai-shell stop     # affects current directory's instance
+./ai-shell start    # affects current directory's instance
+./ai-shell stop --workdir /path/to/project
 ```
 
 **Features:**
@@ -115,7 +130,7 @@ The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter th
 - Provides clear error messages if the container doesn't exist or operations fail
 - Respects the `AI_SHELL_CONTAINER` environment variable for custom container names
 
-**Note:** If the container doesn't exist, run `./ai-shell recreate` first to create it.
+**Note:** If the container doesn't exist, run `./ai-shell up` first to create it.
 
 ## Use
 
@@ -145,13 +160,13 @@ The container persists data in two locations:
 1. **Project directory** (`/work`): Files created here appear in your local directory
 2. **Docker volume** (`ai_agent_shell_home` → `/root`): Home directory, configs, and installed packages
 
-**Important:** When rebuilding the image, your volume data persists. Use `./ai-shell recreate` to rebuild while preserving your data.
+**Important:** When rebuilding the image, your volume data persists. Use `./ai-shell up --recreate` to rebuild while preserving your data.
 
 ## Configuration
 
 Environment variables (can be set in `.env` or as container env vars):
 
-- `AI_SHELL_CONTAINER`: Container name (default: `ai-agent-shell`)
+- `AI_SHELL_CONTAINER`: Container base name (default: `ai-agent-shell`)
 - `AI_SHELL_IMAGE`: Image name (default: `ai-agent-shell`)
-- `AI_SHELL_VOLUME`: Volume name for `/root` (default: `ai_agent_shell_home`)
+- `AI_SHELL_VOLUME`: Volume base name for `/root` (default: `ai_agent_shell_home`)
 - `GH_TOKEN`: Optional token for GitHub CLI (`gh`) authentication
