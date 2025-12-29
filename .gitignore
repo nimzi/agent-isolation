@@ -30,7 +30,3 @@ Thumbs.db
 bin/
 /ai-shell
 
-# Intentionally unsafe SSH-in-image staging directory:
-# keep instructions tracked, ignore any actual key material.
-docker/docker_ssh/*
-!docker/docker_ssh/.gitkeep

@@ -15,30 +15,12 @@ WORKDIR /work
 
 # (No API-provider tooling.) Python is kept for general scripting convenience.
 
-# Intentionally unsafe (by request): bake SSH keys into the image.
-# We store them outside /root because /root is typically a mounted volume at runtime.
-COPY docker_ssh/ /image_ssh/
-RUN set -eu; \
-    rm -f /image_ssh/README.md 2>/dev/null || true; \
-    chmod 700 /image_ssh || true; \
-    if ls /image_ssh/id_* >/dev/null 2>&1; then \
-      for f in /image_ssh/id_*; do \
-        case "$f" in \
-          *.pub) chmod 644 "$f" ;; \
-          *) chmod 600 "$f" ;; \
-        esac; \
-      done; \
-    fi; \
-    [ -f /image_ssh/config ] && chmod 600 /image_ssh/config || true; \
-    [ -f /image_ssh/known_hosts ] && chmod 644 /image_ssh/known_hosts || true
-
-COPY container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
-RUN chmod +x /usr/local/bin/container-entrypoint.sh
+COPY setup-git-ssh.sh /docker/setup-git-ssh.sh
+RUN chmod +x /docker/setup-git-ssh.sh
 
 # Note: cursor-agent CLI is installed by `ai-shell up` after container creation
 # This is because /root is mounted as a volume, which would overwrite the installation
 # Installing it after container creation ensures it persists in the /root volume
 
 # Keep container running - use tail to prevent immediate exit
-ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh"]
 CMD ["tail", "-f", "/dev/null"]

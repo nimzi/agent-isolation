@@ -309,6 +309,37 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				if err := d.RunDetached(args...); err != nil {
 					return err
 				}
+
+				// On first creation, generate/configure SSH inside the container.
+				// This writes keys into /root (a persistent volume), so it should not be re-run on every `up`.
+				out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh")
+				if err != nil {
+					out = redactSecrets(out)
+					out = strings.TrimSpace(out)
+					const maxOut = 4000
+					if len(out) > maxOut {
+						out = out[:maxOut] + "\n...(truncated)"
+					}
+					msg := strings.TrimSpace(fmt.Sprintf(`
+SSH setup failed inside the container.
+
+ai-shell requires SSH for git operations and will run /docker/setup-git-ssh.sh on first container creation.
+
+This script requires GitHub CLI authentication.
+
+How to fix:
+  - Set GH_TOKEN in .env (or pass --env-file) and re-run: ai-shell up --recreate --home "$(pwd)"
+  - Or enter the container and run: gh auth login
+
+If you want to clean up the failed instance:
+  - ai-shell rm --volume   (remove container + /root volume for this workdir)
+  - ai-shell rm --nuke     (remove ALL ai-shell containers/volumes/images)
+
+Output from /docker/setup-git-ssh.sh:
+%s
+`, out))
+					return errors.New(msg)
+				}
 			} else {
 				if err := requireManaged(d, container, workdir); err != nil {
 					return err

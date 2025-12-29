@@ -32,41 +32,16 @@ gh auth status
 gh api user --jq .login
 ```
 
-### (Unsafe) Bake SSH keys into the container image (for Git/GitHub)
+### Git SSH setup (default; runs on first container creation)
 
-Criminally embedding ssh keys from the host so `git` (and GitHub SSH) work from inside the container.
+On the **first** `ai-shell up` (when the container is created), `ai-shell` runs `/docker/setup-git-ssh.sh` inside the container.
 
-**Security warning:** putting private keys into an image is dangerous:
+- It generates `~/.ssh/id_ed25519` inside the container (stored in the persistent `/root` volume).
+- It adds the public key to your GitHub account via `gh ssh-key add`.
+- It configures git to use SSH for GitHub (`url."git@github.com:".insteadOf`).
+- It fails `ai-shell up` if GitHub auth is not available (so you don't end up with a half-working git setup).
 
-- Anyone with the image (or access to your Docker registry / cache) can extract your keys.
-- Keys may persist in build caches and image layers.
-- Rotating keys later requires rebuilding and ensuring old images are deleted everywhere.
-
-Treat this image as **highly sensitive**.
-
-#### What to put in `docker/docker_ssh/` (on the host)
-
-Copy the SSH material you want baked into the image into the `docker/docker_ssh/` folder, for example:
-
-- `id_ed25519` (private key)
-- `id_ed25519.pub` (public key)
-- `known_hosts` (optional; the entrypoint also adds GitHub host keys)
-- `config` (optional)
-
-#### Build/rebuild (bakes keys into the image)
-
-```bash
-mkdir -p docker/docker_ssh
-cp -a "$HOME/.ssh/id_ed25519" docker/docker_ssh/
-cp -a "$HOME/.ssh/id_ed25519.pub" docker/docker_ssh/
-cp -a "$HOME/.ssh/known_hosts" docker/docker_ssh/ 2>/dev/null || true
-cp -a "$HOME/.ssh/config" docker/docker_ssh/ 2>/dev/null || true
-ai-shell up --recreate --home "$(pwd)"
-```
-
-Notes:
-- Keys are baked into the image under `/image_ssh/` and copied into `/root/.ssh` at container start (because this repo mounts a persistent volume on `/root`).
-- The folder `docker/docker_ssh/` is ignored by git (this repo tracks only a placeholder file to keep the directory present for Docker builds).
+Recommended: set `GH_TOKEN` in `.env` before running `ai-shell up`.
 
 ## Build and run
 
