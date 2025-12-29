@@ -77,6 +77,7 @@ func (d Docker) ContainerRunning(name string) bool {
 
 type InspectContainer struct {
 	Config struct {
+		Image  string            `json:"Image"`
 		Labels map[string]string `json:"Labels"`
 		Env    []string          `json:"Env"`
 	} `json:"Config"`
@@ -144,6 +145,13 @@ func (d Docker) RemoveVolume(name string) error {
 	return err
 }
 
+func (d Docker) RemoveImage(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
+	defer cancel()
+	_, err := d.runCapture(ctx, "rmi", name)
+	return err
+}
+
 func (d Docker) ExecCapture(container string, cmd string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
 	defer cancel()
@@ -166,6 +174,23 @@ func (d Docker) PSNamesByLabel(key, val string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 30*time.Second))
 	defer cancel()
 	out, err := d.runCapture(ctx, "ps", "-a", "--filter", fmt.Sprintf("label=%s=%s", key, val), "--format", "{{.Names}}")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln != "" {
+			names = append(names, ln)
+		}
+	}
+	return names, nil
+}
+
+func (d Docker) VolumeNames() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 30*time.Second))
+	defer cancel()
+	out, err := d.runCapture(ctx, "volume", "ls", "--format", "{{.Name}}")
 	if err != nil {
 		return nil, err
 	}

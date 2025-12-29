@@ -147,6 +147,23 @@ ai-shell start --home "$(pwd)"    # affects current directory's instance
 ai-shell stop --home "$(pwd)" --workdir /path/to/project
 ```
 
+### Destructive cleanup: remove all ai-shell Docker state
+
+To remove **all ai-shell managed containers**, their associated **`/root` volumes**, and any **images those containers use**:
+
+```bash
+ai-shell rm --nuke
+```
+
+This also attempts to remove orphaned volumes matching the default naming scheme `ai_agent_shell_home_*`.
+
+- By default, `--nuke` prompts for confirmation (`Type NUKE to continue:`).
+- If no TTY is available, it refuses unless you pass `--yes`:
+
+```bash
+ai-shell rm --nuke --yes
+```
+
 **Features:**
 - Checks if the container exists before attempting to start/stop
 - Verifies container state to avoid unnecessary operations

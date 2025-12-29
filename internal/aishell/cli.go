@@ -1,6 +1,7 @@
 package aishell
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -593,14 +594,168 @@ func newLsCmd(cfg *Config) *cobra.Command {
 
 func newRmCmd(cfg *Config) *cobra.Command {
 	var removeVolume bool
+	var nuke bool
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "rm",
-		Short: "Remove the workdir container (optionally its /root volume)",
+		Short: "Remove the workdir container (or --nuke all ai-shell Docker state)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
 				return err
 			}
+
+			if nuke {
+				if removeVolume {
+					return errors.New("--nuke cannot be combined with --volume")
+				}
+				if f := cmd.Flag("workdir"); f != nil && f.Changed {
+					return errors.New("--nuke cannot be combined with --workdir")
+				}
+
+				containers, err := d.PSNamesByLabel(LabelManaged, "true")
+				if err != nil {
+					return err
+				}
+				sort.Strings(containers)
+
+				volSet := map[string]struct{}{}
+				imgSet := map[string]struct{}{}
+
+				for _, name := range containers {
+					info, err := d.InspectContainer(name)
+					if err != nil {
+						continue
+					}
+					if info.Config.Labels != nil {
+						if v := strings.TrimSpace(info.Config.Labels[LabelVolume]); v != "" {
+							volSet[v] = struct{}{}
+						}
+					}
+					if img := strings.TrimSpace(info.Config.Image); img != "" {
+						imgSet[img] = struct{}{}
+					}
+				}
+
+				volumeNames, err := d.VolumeNames()
+				if err != nil {
+					return err
+				}
+				orphanPrefix := DefaultVolumeBase + "_"
+				for _, v := range volumeNames {
+					if strings.HasPrefix(v, orphanPrefix) {
+						volSet[v] = struct{}{}
+					}
+				}
+
+				var volumes []string
+				for v := range volSet {
+					volumes = append(volumes, v)
+				}
+				sort.Strings(volumes)
+
+				var images []string
+				for img := range imgSet {
+					images = append(images, img)
+				}
+				sort.Strings(images)
+
+				fmt.Println("This will delete the following Docker resources:")
+				fmt.Printf("Containers (%d):\n", len(containers))
+				if len(containers) == 0 {
+					fmt.Println("  (none)")
+				} else {
+					for _, c := range containers {
+						fmt.Printf("  - %s\n", c)
+					}
+				}
+				fmt.Printf("Volumes (%d):\n", len(volumes))
+				if len(volumes) == 0 {
+					fmt.Println("  (none)")
+				} else {
+					for _, v := range volumes {
+						fmt.Printf("  - %s\n", v)
+					}
+				}
+				fmt.Printf("Images (%d):\n", len(images))
+				if len(images) == 0 {
+					fmt.Println("  (none)")
+				} else {
+					for _, img := range images {
+						fmt.Printf("  - %s\n", img)
+					}
+				}
+
+				if len(containers) == 0 && len(volumes) == 0 && len(images) == 0 {
+					fmt.Println("Nothing to delete.")
+					return nil
+				}
+
+				if !yes {
+					if !isTTY() {
+						return errors.New("refusing to --nuke without a TTY; re-run with --yes")
+					}
+					fmt.Print("Type NUKE to continue: ")
+					line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+					if strings.TrimSpace(line) != "NUKE" {
+						fmt.Println("Aborted.")
+						return nil
+					}
+				}
+
+				var warnContainers []string
+				var warnVolumes []string
+				var warnImages []string
+				removedContainers := 0
+				removedVolumes := 0
+				removedImages := 0
+
+				for _, c := range containers {
+					_ = d.Stop(c)
+				}
+				for _, c := range containers {
+					if err := d.Remove(c); err != nil {
+						warnContainers = append(warnContainers, fmt.Sprintf("%s: %v", c, err))
+						continue
+					}
+					removedContainers++
+				}
+				for _, v := range volumes {
+					if err := d.RemoveVolume(v); err != nil {
+						warnVolumes = append(warnVolumes, fmt.Sprintf("%s: %v", v, err))
+						continue
+					}
+					removedVolumes++
+				}
+				for _, img := range images {
+					if err := d.RemoveImage(img); err != nil {
+						warnImages = append(warnImages, fmt.Sprintf("%s: %v", img, err))
+						continue
+					}
+					removedImages++
+				}
+
+				fmt.Println("OK: nuke complete.")
+				fmt.Printf("Removed: %d/%d containers, %d/%d volumes, %d/%d images\n",
+					removedContainers, len(containers),
+					removedVolumes, len(volumes),
+					removedImages, len(images),
+				)
+				if len(warnContainers)+len(warnVolumes)+len(warnImages) > 0 {
+					fmt.Println("Warnings (some resources could not be removed):")
+					for _, w := range warnContainers {
+						fmt.Printf("  container: %s\n", w)
+					}
+					for _, w := range warnVolumes {
+						fmt.Printf("  volume: %s\n", w)
+					}
+					for _, w := range warnImages {
+						fmt.Printf("  image: %s\n", w)
+					}
+				}
+				return nil
+			}
+
 			workdir, _, container, _, volume, err := resolveInstance(cfg)
 			if err != nil {
 				return err
@@ -623,6 +778,8 @@ func newRmCmd(cfg *Config) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&removeVolume, "volume", false, "Also remove the associated /root volume")
+	cmd.Flags().BoolVar(&nuke, "nuke", false, "Remove ALL ai-shell managed containers, their volumes, and images they use (destructive)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompt (use with --nuke in scripts)")
 	return cmd
 }
 
