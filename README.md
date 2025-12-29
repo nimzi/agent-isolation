@@ -11,6 +11,8 @@ Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/r
 
 ## Setup
 
+**Host OS note:** this setup is currently documented for a **Linux host** (for example, it mounts host Cursor credentials from `~/.config/cursor`).
+
 ### 1. Prerequisite (for Cursor): Cursor installed + signed in (on the host)
 
 Cursor Agent CLI reads credentials from your host’s Cursor installation. Make sure you’re signed in on the host and that `$HOME/.config/cursor` is populated.
