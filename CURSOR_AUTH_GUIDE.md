@@ -27,7 +27,7 @@ You should see files like:
 
 The `ai-shell recreate` command automatically mounts your credentials:
 ```bash
--v $HOME/.config/cursor:/root/.config/cursor
+-v $HOME/.config/cursor:/root/.config/cursor:ro
 ```
 
 This mounts your host's Cursor config directory to the container's config location.
@@ -39,6 +39,8 @@ After creating the container, verify credentials are accessible:
 ai-shell up --home "$(pwd)"
 ai-shell check --home "$(pwd)"
 ```
+
+**What `ai-shell check` verifies:** it confirms `cursor-agent` is installed and that `/root/.config/cursor` is present/readable inside the container. It does not guarantee the directory contains valid credentials (for that, ensure your host Cursor is signed in and the host directory is populated).
 
 ### How It Works
 
@@ -66,7 +68,10 @@ ai-shell check --home "$(pwd)"
 
 2. **Verify mount in container:**
    ```bash
-   docker exec ai-agent-shell ls -la /root/.config/cursor/
+   ai-shell status --home "$(pwd)"   # prints the derived container name for this workdir
+   ai-shell enter --home "$(pwd)"
+   # inside the container:
+   ls -la /root/.config/cursor/
    ```
    Should show the same files as on host.
 
@@ -88,7 +93,7 @@ docker run -d \
     --name ai-agent-shell-<id> \
     -v $(pwd):/work \
     -v ai_agent_shell_home_<id>:/root \
-    -v $HOME/.config/cursor:/root/.config/cursor \
+    -v $HOME/.config/cursor:/root/.config/cursor:ro \
     --env-file .env \
     ai-agent-shell
 ```

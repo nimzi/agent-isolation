@@ -301,7 +301,7 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				args = append(args,
 					"-v", workdir+":/work",
 					"-v", volume+":/root",
-					"-v", cursorDir+":/root/.config/cursor",
+					"-v", cursorDir+":/root/.config/cursor:ro",
 				)
 				args = append(args, envArgs...)
 				args = append(args, image)

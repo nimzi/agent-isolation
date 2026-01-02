@@ -19,7 +19,9 @@ Cursor Agent CLI reads credentials from your host’s Cursor installation. Make 
 
 ### 2. (Optional) GitHub CLI auth via `GH_TOKEN`
 
-If you create a `.env` file containing `GH_TOKEN`, `gh` will authenticate non-interactively inside the container.
+If you provide `GH_TOKEN` to the container, `gh` will authenticate non-interactively inside the container.
+
+**Note on `.env`:** `ai-shell up` only auto-loads `.env` from the **`--home` directory** (the Docker build context location). If you keep `.env` in your project/workdir, pass it explicitly with `--env-file`.
 
 Example `.env`:
 
@@ -77,10 +79,10 @@ ai-shell up --home "$(pwd)"
 
 This script will:
 - Build the Docker image (includes Node.js + tooling for Cursor Agent CLI)
-- Create a container (optionally using `.env` if present)
+- Create a container (optionally using `.env` **from `--home`** if present)
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
-- Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor`
+- Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
 
 ### Multiple workdirs (multiple containers)
 
@@ -106,10 +108,12 @@ docker run -d \
     --name ai-agent-shell \
     -v $(pwd):/work \
     -v ai_agent_shell_home:/root \
-    -v $HOME/.config/cursor:/root/.config/cursor \
+    -v $HOME/.config/cursor:/root/.config/cursor:ro \
     --env-file .env \
     ai-agent-shell
 ```
+
+**Tip:** When using the `ai-shell` CLI (not manual `docker run`), the container name is usually `ai-agent-shell-<id>` (derived from the workdir). Use `ai-shell status` or `ai-shell instance` to print the exact name.
 
 ## Container control script
 
@@ -148,6 +152,13 @@ ai-shell rm --nuke --yes
 - Respects the `AI_SHELL_CONTAINER` environment variable for custom container names
 
 **Note:** If the container doesn't exist, run `ai-shell up --home "$(pwd)"` first to create it.
+
+### `--home` vs `--workdir` (important)
+
+- **`--workdir`**: the project directory mounted at `/work` (this defines the instance identity).
+- **`--home` / `AI_SHELL_HOME`**: where `ai-shell` finds `docker/Dockerfile` and related scripts (Docker build context).
+  - When installed, this is commonly `/usr/local/share/ai-shell` (or `~/.local/share/ai-shell`).
+  - The default `.env` auto-detection is also relative to `--home`.
 
 ## Use
 
