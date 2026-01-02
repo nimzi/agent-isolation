@@ -376,22 +376,34 @@ Output from /docker/setup-git-ssh.sh:
 
 func newStartCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
-		Use:   "start",
+		Use:   "start [TARGET]",
 		Short: "Start the container for this workdir",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
 				return err
 			}
-			workdir, _, container, _, _, err := resolveInstance(cfg)
-			if err != nil {
-				return err
-			}
-			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
-			}
-			if err := requireManaged(d, container, workdir); err != nil {
-				return err
+			var workdir, container string
+			if len(args) == 1 {
+				inst, err := resolveTarget(d, args[0])
+				if err != nil {
+					return err
+				}
+				workdir = inst.Workdir
+				container = inst.Container
+			} else {
+				var err error
+				workdir, _, container, _, _, err = resolveInstance(cfg)
+				if err != nil {
+					return err
+				}
+				if !d.ContainerExists(container) {
+					return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
+				}
+				if err := requireManaged(d, container, workdir); err != nil {
+					return err
+				}
 			}
 			if d.ContainerRunning(container) {
 				fmt.Printf("OK: %q already running.\n", container)
@@ -408,22 +420,34 @@ func newStartCmd(cfg *Config) *cobra.Command {
 
 func newStopCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
-		Use:   "stop",
+		Use:   "stop [TARGET]",
 		Short: "Stop the container for this workdir",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
 				return err
 			}
-			workdir, _, container, _, _, err := resolveInstance(cfg)
-			if err != nil {
-				return err
-			}
-			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s", workdir)
-			}
-			if err := requireManaged(d, container, workdir); err != nil {
-				return err
+			var workdir, container string
+			if len(args) == 1 {
+				inst, err := resolveTarget(d, args[0])
+				if err != nil {
+					return err
+				}
+				workdir = inst.Workdir
+				container = inst.Container
+			} else {
+				var err error
+				workdir, _, container, _, _, err = resolveInstance(cfg)
+				if err != nil {
+					return err
+				}
+				if !d.ContainerExists(container) {
+					return fmt.Errorf("container not found for workdir: %s", workdir)
+				}
+				if err := requireManaged(d, container, workdir); err != nil {
+					return err
+				}
 			}
 			if !d.ContainerRunning(container) {
 				fmt.Printf("OK: %q already stopped.\n", container)
@@ -440,31 +464,57 @@ func newStopCmd(cfg *Config) *cobra.Command {
 
 func newStatusCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
+		Use:   "status [TARGET]",
 		Short: "Show status for this workdir instance",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
 				return err
 			}
-			workdir, iid, container, image, volume, err := resolveInstance(cfg)
-			if err != nil {
-				return err
+			containerForMounts := ""
+			if len(args) == 1 {
+				inst, err := resolveTarget(d, args[0])
+				if err != nil {
+					return err
+				}
+				running := d.ContainerRunning(inst.Container)
+				fmt.Printf("workdir:   %s\n", inst.Workdir)
+				fmt.Printf("instance:  %s\n", inst.InstanceID)
+				fmt.Printf("container: %s (%s)\n", inst.Container, ternary(running, "running", inst.Status))
+				if strings.TrimSpace(inst.Image) != "" {
+					fmt.Printf("image:     %s\n", inst.Image)
+				}
+				if strings.TrimSpace(inst.Volume) != "" {
+					fmt.Printf("volume:    %s -> /root\n", inst.Volume)
+				}
+				containerForMounts = inst.Container
+			} else {
+				workdir, iid, container, image, volume, err := resolveInstance(cfg)
+				if err != nil {
+					return err
+				}
+				exists := d.ContainerExists(container)
+				running := exists && d.ContainerRunning(container)
+				fmt.Printf("workdir:   %s\n", workdir)
+				fmt.Printf("instance:  %s\n", iid)
+				fmt.Printf("container: %s (%s)\n", container, ternary(running, "running", ternary(exists, "stopped", "missing")))
+				fmt.Printf("image:     %s\n", image)
+				fmt.Printf("volume:    %s -> /root\n", volume)
+				if !exists {
+					return nil
+				}
+				if err := requireManaged(d, container, workdir); err != nil {
+					return err
+				}
+				containerForMounts = container
 			}
-			exists := d.ContainerExists(container)
-			running := exists && d.ContainerRunning(container)
-			fmt.Printf("workdir:   %s\n", workdir)
-			fmt.Printf("instance:  %s\n", iid)
-			fmt.Printf("container: %s (%s)\n", container, ternary(running, "running", ternary(exists, "stopped", "missing")))
-			fmt.Printf("image:     %s\n", image)
-			fmt.Printf("volume:    %s -> /root\n", volume)
-			if !exists {
+
+			// Best-effort: print mounts if container exists.
+			if containerForMounts == "" || !d.ContainerExists(containerForMounts) {
 				return nil
 			}
-			if err := requireManaged(d, container, workdir); err != nil {
-				return err
-			}
-			mounts, _ := d.InspectMounts(container)
+			mounts, _ := d.InspectMounts(containerForMounts)
 			mounts = strings.TrimSpace(mounts)
 			if mounts != "" {
 				fmt.Println("mounts:")
@@ -479,22 +529,34 @@ func newStatusCmd(cfg *Config) *cobra.Command {
 
 func newEnterCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
-		Use:   "enter",
+		Use:   "enter [TARGET]",
 		Short: "Enter an interactive shell inside the workdir container",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
 				return err
 			}
-			workdir, _, container, _, _, err := resolveInstance(cfg)
-			if err != nil {
-				return err
-			}
-			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
-			}
-			if err := requireManaged(d, container, workdir); err != nil {
-				return err
+			var workdir, container string
+			if len(args) == 1 {
+				inst, err := resolveTarget(d, args[0])
+				if err != nil {
+					return err
+				}
+				workdir = inst.Workdir
+				container = inst.Container
+			} else {
+				var err error
+				workdir, _, container, _, _, err = resolveInstance(cfg)
+				if err != nil {
+					return err
+				}
+				if !d.ContainerExists(container) {
+					return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
+				}
+				if err := requireManaged(d, container, workdir); err != nil {
+					return err
+				}
 			}
 			if !d.ContainerRunning(container) {
 				if err := d.Start(container); err != nil {
@@ -520,25 +582,39 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 
 func newCheckCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
-		Use:   "check",
+		Use:   "check [TARGET]",
 		Short: "Sanity-check cursor-agent + mounts (and optional gh auth)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
 				return err
 			}
-			workdir, _, container, _, _, err := resolveInstance(cfg)
-			if err != nil {
-				return err
-			}
-			if !d.ContainerExists(container) {
-				return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
-			}
-			if err := requireManaged(d, container, workdir); err != nil {
-				return err
+			var workdir, container string
+			startHint := "ai-shell start"
+			if len(args) == 1 {
+				inst, err := resolveTarget(d, args[0])
+				if err != nil {
+					return err
+				}
+				workdir = inst.Workdir
+				container = inst.Container
+				startHint = fmt.Sprintf("ai-shell start %s", args[0])
+			} else {
+				var err error
+				workdir, _, container, _, _, err = resolveInstance(cfg)
+				if err != nil {
+					return err
+				}
+				if !d.ContainerExists(container) {
+					return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
+				}
+				if err := requireManaged(d, container, workdir); err != nil {
+					return err
+				}
 			}
 			if !d.ContainerRunning(container) {
-				return fmt.Errorf("container is not running: %s (run: ai-shell start)", container)
+				return fmt.Errorf("container is not running: %s (run: %s)", container, startHint)
 			}
 
 			if _, err := d.ExecCapture(container, "command -v cursor-agent && cursor-agent --help | head -30"); err != nil {
@@ -577,50 +653,66 @@ func newLsCmd(cfg *Config) *cobra.Command {
 			if err := d.Require(); err != nil {
 				return err
 			}
-			names, err := d.PSNamesByLabel(LabelManaged, "true")
+			instances, err := listManagedInstances(d)
 			if err != nil {
 				return err
 			}
-			if len(names) == 0 {
+			if len(instances) == 0 {
 				fmt.Println("No ai-shell managed containers found.")
 				return nil
 			}
-			sort.Strings(names)
+
+			var ids []string
+			for _, inst := range instances {
+				if inst.InstanceID != "" {
+					ids = append(ids, inst.InstanceID)
+				}
+			}
+			shortLen := uniquePrefixLen(ids, 4, 10)
 
 			type row struct {
 				workdir   string
+				short     string
+				iid       string
 				container string
 				status    string
 			}
 			var rows []row
-			for _, name := range names {
-				info, err := d.InspectContainer(name)
-				if err != nil {
-					continue
+			for _, inst := range instances {
+				short := "??????????"
+				if shortLen > 0 && len(inst.InstanceID) >= shortLen {
+					short = inst.InstanceID[:shortLen]
 				}
-				wd := ""
-				if info.Config.Labels != nil {
-					wd = info.Config.Labels[LabelWorkdir]
-				}
-				rows = append(rows, row{workdir: wd, container: name, status: info.State.Status})
+				rows = append(rows, row{
+					workdir:   inst.Workdir,
+					short:     short,
+					iid:       inst.InstanceID,
+					container: inst.Container,
+					status:    inst.Status,
+				})
 			}
 
-			wdW, cW := 6, 9
+			wdW, sW, iidW, cW := 6, 5, 3, 9
 			for _, r := range rows {
-				if len(r.workdir) > wdW {
-					wdW = len(r.workdir)
-				}
-				if len(r.container) > cW {
-					cW = len(r.container)
-				}
+				wdW = max(wdW, len(r.workdir))
+				sW = max(sW, len(r.short))
+				iidW = max(iidW, len(r.iid))
+				cW = max(cW, len(r.container))
 			}
-			fmt.Printf("%-*s  %-*s  STATUS\n", wdW, "WORKDIR", cW, "CONTAINER")
+			fmt.Printf("%-*s  %-*s  %-*s  %-*s  STATUS\n", wdW, "WORKDIR", sW, "SHORT", iidW, "IID", cW, "CONTAINER")
 			for _, r := range rows {
-				fmt.Printf("%-*s  %-*s  %s\n", wdW, r.workdir, cW, r.container, r.status)
+				fmt.Printf("%-*s  %-*s  %-*s  %-*s  %s\n", wdW, r.workdir, sW, r.short, iidW, r.iid, cW, r.container, r.status)
 			}
 			return nil
 		},
 	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func newRmCmd(cfg *Config) *cobra.Command {
@@ -628,8 +720,9 @@ func newRmCmd(cfg *Config) *cobra.Command {
 	var nuke bool
 	var yes bool
 	cmd := &cobra.Command{
-		Use:   "rm",
+		Use:   "rm [TARGET]",
 		Short: "Remove the workdir container (or --nuke all ai-shell Docker state)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := Docker{}
 			if err := d.Require(); err != nil {
@@ -639,6 +732,9 @@ func newRmCmd(cfg *Config) *cobra.Command {
 			if nuke {
 				if removeVolume {
 					return errors.New("--nuke cannot be combined with --volume")
+				}
+				if len(args) > 0 {
+					return errors.New("--nuke cannot be combined with TARGET")
 				}
 				if f := cmd.Flag("workdir"); f != nil && f.Changed {
 					return errors.New("--nuke cannot be combined with --workdir")
@@ -787,6 +883,26 @@ func newRmCmd(cfg *Config) *cobra.Command {
 				return nil
 			}
 
+			// rm a specific TARGET among managed containers (ignores --workdir).
+			if len(args) == 1 {
+				inst, err := resolveTarget(d, args[0])
+				if err != nil {
+					return err
+				}
+				_ = d.Stop(inst.Container)
+				_ = d.Remove(inst.Container)
+				fmt.Printf("OK: removed container %q.\n", inst.Container)
+				if removeVolume {
+					if strings.TrimSpace(inst.Volume) == "" {
+						return fmt.Errorf("cannot remove volume: missing %s label on container %q", LabelVolume, inst.Container)
+					}
+					_ = d.RemoveVolume(inst.Volume)
+					fmt.Printf("OK: removed volume %q.\n", inst.Volume)
+				}
+				return nil
+			}
+
+			// Default: rm the instance derived from --workdir (or cwd).
 			workdir, _, container, _, volume, err := resolveInstance(cfg)
 			if err != nil {
 				return err

@@ -42,6 +42,8 @@ ai-shell check --home "$(pwd)"
 
 **What `ai-shell check` verifies:** it confirms `cursor-agent` is installed and that `/root/.config/cursor` is present/readable inside the container. It does not guarantee the directory contains valid credentials (for that, ensure your host Cursor is signed in and the host directory is populated).
 
+**Tip:** Use `ai-shell ls` and copy the `SHORT` id; you can target a specific instance with `ai-shell enter <short>`. Prefixes must be unique; if not, `ai-shell` will print an “ambiguous target” error with candidates.
+
 ### How It Works
 
 1. **Host Machine**: Cursor stores credentials in `$HOME/.config/cursor/`
@@ -68,8 +70,8 @@ ai-shell check --home "$(pwd)"
 
 2. **Verify mount in container:**
    ```bash
-   ai-shell status --home "$(pwd)"   # prints the derived container name for this workdir
-   ai-shell enter --home "$(pwd)"
+   ai-shell ls
+   ai-shell enter <short>
    # inside the container:
    ls -la /root/.config/cursor/
    ```

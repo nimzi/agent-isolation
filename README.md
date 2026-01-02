@@ -113,7 +113,9 @@ docker run -d \
     ai-agent-shell
 ```
 
-**Tip:** When using the `ai-shell` CLI (not manual `docker run`), the container name is usually `ai-agent-shell-<id>` (derived from the workdir). Use `ai-shell status` or `ai-shell instance` to print the exact name.
+**Tip:** When using the `ai-shell` CLI (not manual `docker run`), the container name is usually `ai-agent-shell-<id>` (derived from the workdir). Run `ai-shell ls` to see the `SHORT` id and use `ai-shell enter <short>` / `ai-shell stop <short>` without typing the full container name.
+
+**Note:** `TARGET` prefixes must be unique; if a prefix matches multiple instances, `ai-shell` will error with “ambiguous target” and print candidates.
 
 ## Container control script
 
@@ -122,10 +124,15 @@ The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter th
 **Usage:**
 ```bash
 ai-shell --help
-ai-shell status --home "$(pwd)"
-ai-shell stop --home "$(pwd)"     # affects current directory's instance
-ai-shell start --home "$(pwd)"    # affects current directory's instance
+ai-shell status --home "$(pwd)"       # affects current directory's instance
+ai-shell stop --home "$(pwd)"         # affects current directory's instance
+ai-shell start --home "$(pwd)"        # affects current directory's instance
 ai-shell stop --home "$(pwd)" --workdir /path/to/project
+
+# Or target an instance by SHORT/IID/container prefix:
+ai-shell ls
+ai-shell enter <short>
+ai-shell stop <short>
 ```
 
 ### Destructive cleanup: remove all ai-shell Docker state
@@ -163,7 +170,8 @@ ai-shell rm --nuke --yes
 ## Use
 
 ```bash
-ai-shell enter --home "$(pwd)"
+ai-shell ls
+ai-shell enter <short>
 # then inside the container:
 cursor-agent --help
 ```
