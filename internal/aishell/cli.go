@@ -165,28 +165,6 @@ func ensureCursorConfigDir(p string) (string, error) {
 	return abs, nil
 }
 
-func resolveEnvFileArg(home string, envFile string, envFileChanged bool) ([]string, error) {
-	// If explicitly set to empty, disable.
-	if envFileChanged {
-		if envFile == "" {
-			return nil, nil
-		}
-		path := envFile
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(home, path)
-		}
-		if _, err := os.Stat(path); err != nil {
-			return nil, fmt.Errorf("env file not found: %s", envFile)
-		}
-		return []string{"--env-file", path}, nil
-	}
-	// Default: use .env if present.
-	if _, err := os.Stat(filepath.Join(home, ".env")); err == nil {
-		return []string{"--env-file", filepath.Join(home, ".env")}, nil
-	}
-	return nil, nil
-}
-
 func requireManaged(d Docker, container string, expectedWorkdir string) error {
 	info, err := d.InspectContainer(container)
 	if err != nil {
@@ -277,9 +255,17 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				return err
 			}
 
-			envArgs, err := resolveEnvFileArg(home, envFile, cmd.Flags().Changed("env-file"))
+			envRes, err := resolveEnvFileArgs(envFile, cmd.Flags().Changed("env-file"))
 			if err != nil {
 				return err
+			}
+			if envRes.Source == "none" || envRes.Source == "disabled" {
+				if envRes.Source == "disabled" {
+					fmt.Fprintln(os.Stderr, `Warning: env-file injection disabled via --env-file="".`)
+					fmt.Fprintln(os.Stderr)
+				}
+				fmt.Fprintln(os.Stderr, formatEnvMissingWarning(defaultGlobalEnvFilePath()))
+				fmt.Fprintln(os.Stderr)
 			}
 
 			if recreate && d.ContainerExists(container) {
@@ -303,33 +289,48 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 					"-v", volume+":/root",
 					"-v", cursorDir+":/root/.config/cursor:ro",
 				)
-				args = append(args, envArgs...)
+				args = append(args, envRes.Args...)
 				args = append(args, image)
 
 				if err := d.RunDetached(args...); err != nil {
 					return err
 				}
 
-				// On first creation, generate/configure SSH inside the container.
-				// This writes keys into /root (a persistent volume), so it should not be re-run on every `up`.
-				out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh")
-				if err != nil {
-					out = redactSecrets(out)
-					out = strings.TrimSpace(out)
-					const maxOut = 4000
-					if len(out) > maxOut {
-						out = out[:maxOut] + "\n...(truncated)"
+				// Install cursor-agent as early as possible so the container is still usable
+				// even if SSH setup fails (e.g. port 22 blocked on this network).
+				if !noInstall {
+					if err := installCursorAgentIfMissing(d, container); err != nil {
+						return err
 					}
-					msg := strings.TrimSpace(fmt.Sprintf(`
+				}
+
+				// SSH setup (writes keys into /root persistent volume).
+				// If an env file was provided/found, keep "fail fast" behavior.
+				if len(envRes.Args) > 0 {
+					out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh")
+					if err != nil {
+						out = redactSecrets(out)
+						out = strings.TrimSpace(out)
+						const maxOut = 4000
+						if len(out) > maxOut {
+							out = out[:maxOut] + "\n...(truncated)"
+						}
+						msg := strings.TrimSpace(fmt.Sprintf(`
 SSH setup failed inside the container.
 
-ai-shell requires SSH for git operations and will run /docker/setup-git-ssh.sh on first container creation.
+ai-shell requires SSH for git operations and runs /docker/setup-git-ssh.sh to bootstrap GitHub SSH access.
 
 This script requires GitHub CLI authentication.
 
 How to fix:
-  - Set GH_TOKEN in .env (or pass --env-file) and re-run: ai-shell up --recreate --home "$(pwd)"
-  - Or enter the container and run: gh auth login
+  - Create a global env file with GH_TOKEN:
+      $XDG_CONFIG_HOME/ai-shell/.env   (preferred)
+      ~/.config/ai-shell/.env          (fallback)
+    then re-run: ai-shell up --recreate
+  - Or authenticate interactively:
+      ai-shell enter
+      gh auth login
+    then re-run: ai-shell up --recreate
 
 If you want to clean up the failed instance:
   - ai-shell rm --volume   (remove container + /root volume for this workdir)
@@ -338,7 +339,44 @@ If you want to clean up the failed instance:
 Output from /docker/setup-git-ssh.sh:
 %s
 `, out))
-					return errors.New(msg)
+						return errors.New(msg)
+					}
+				} else {
+					// No env file: only attempt SSH setup if gh is already authenticated in the persistent /root volume.
+					if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
+						fmt.Fprintln(os.Stderr, strings.TrimSpace(`
+Warning: GitHub CLI (gh) is not authenticated inside the container, so SSH setup was skipped.
+
+Next steps:
+  - ai-shell enter            (or: ai-shell enter <short>)
+  - inside the container: gh auth login
+  - optionally verify: gh auth status
+
+Then finish SSH setup:
+  - re-run: ai-shell up            (it will attempt SSH setup if gh auth status passes)
+  - or inside the container: /docker/setup-git-ssh.sh
+`))
+						fmt.Fprintln(os.Stderr)
+					} else {
+						// Auth already exists (likely from a prior interactive login); proceed with SSH bootstrap.
+						if out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
+							out = redactSecrets(out)
+							out = strings.TrimSpace(out)
+							const maxOut = 4000
+							if len(out) > maxOut {
+								out = out[:maxOut] + "\n...(truncated)"
+							}
+							msg := strings.TrimSpace(fmt.Sprintf(`
+SSH setup failed inside the container (unexpected).
+
+gh appears to be authenticated, but /docker/setup-git-ssh.sh still failed.
+
+Output from /docker/setup-git-ssh.sh:
+%s
+`, out))
+							return errors.New(msg)
+						}
+					}
 				}
 			} else {
 				if err := requireManaged(d, container, workdir); err != nil {
@@ -347,6 +385,42 @@ Output from /docker/setup-git-ssh.sh:
 				if !d.ContainerRunning(container) {
 					if err := d.Start(container); err != nil {
 						return err
+					}
+				}
+
+				// If SSH setup was previously skipped, try again once gh auth exists.
+				needsSSH, err := d.ExecCapture(container, `test -f "$HOME/.ssh/id_ed25519" && git config --global --get url."git@github.com:".insteadOf "https://github.com/" >/dev/null 2>&1 && echo OK`)
+				if err != nil || !strings.Contains(needsSSH, "OK") {
+					if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
+						fmt.Fprintln(os.Stderr, strings.TrimSpace(`
+Warning: GitHub CLI (gh) is not authenticated inside the container, so GitHub SSH setup has not been completed.
+
+Next steps:
+  - ai-shell enter
+  - gh auth login
+  - gh auth status
+
+Then run:
+  - /docker/setup-git-ssh.sh
+  - or just re-run: ai-shell up
+`))
+						fmt.Fprintln(os.Stderr)
+					} else {
+						if out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
+							out = redactSecrets(out)
+							out = strings.TrimSpace(out)
+							const maxOut = 4000
+							if len(out) > maxOut {
+								out = out[:maxOut] + "\n...(truncated)"
+							}
+							msg := strings.TrimSpace(fmt.Sprintf(`
+SSH setup failed inside the container.
+
+Output from /docker/setup-git-ssh.sh:
+%s
+`, out))
+							return errors.New(msg)
+						}
 					}
 				}
 			}
@@ -364,7 +438,7 @@ Output from /docker/setup-git-ssh.sh:
 	}
 
 	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
-	cmd.Flags().StringVar(&envFile, "env-file", "", "Env file to pass to docker run (default: use ./.env only if present). Set empty to disable.")
+	cmd.Flags().StringVar(&envFile, "env-file", "", "Env file to pass to docker run. Resolution: --env-file, AI_SHELL_ENV_FILE, then $XDG_CONFIG_HOME/ai-shell/.env or ~/.config/ai-shell/.env if present. Optional. Set to empty to disable.")
 	cmd.Flags().BoolVar(&noBuild, "no-build", false, "Skip docker build")
 	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip installing cursor-agent")
 	if !aliasRecreate {

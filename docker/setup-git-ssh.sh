@@ -69,10 +69,28 @@ fi
 # Test SSH connection
 echo ""
 echo "Testing SSH connection to GitHub..."
-if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-    echo "✓ SSH access verified successfully"
-else
-    echo "Warning: SSH connection test did not succeed as expected" >&2
+# GitHub can take a short moment to accept a newly-added SSH key.
+# Retry for a bit to avoid flaky first-run failures.
+attempts=10
+delay_s=2
+last_out=""
+for ((i=1; i<=attempts; i++)); do
+    # ssh may exit non-zero even on success ("no shell access"), so check output text.
+    last_out="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -T git@github.com 2>&1 || true)"
+    if echo "$last_out" | grep -q "successfully authenticated"; then
+        echo "✓ SSH access verified successfully"
+        break
+    fi
+    if [ "$i" -lt "$attempts" ]; then
+        echo "Waiting for GitHub SSH key propagation... (attempt ${i}/${attempts})"
+        sleep "$delay_s"
+    fi
+done
+if ! echo "$last_out" | grep -q "successfully authenticated"; then
+    echo "Warning: SSH connection test did not succeed as expected after ${attempts} attempts" >&2
+    echo "" >&2
+    echo "Last ssh output:" >&2
+    echo "$last_out" >&2
     exit 1
 fi
 

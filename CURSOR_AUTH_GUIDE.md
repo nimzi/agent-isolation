@@ -96,6 +96,8 @@ docker run -d \
     -v $(pwd):/work \
     -v ai_agent_shell_home_<id>:/root \
     -v $HOME/.config/cursor:/root/.config/cursor:ro \
-    --env-file .env \
+    --env-file ~/.config/ai-shell/.env \
     ai-agent-shell
 ```
+
+Note: the env file is optional; you can also authenticate inside the container with `gh auth login` and then run `/docker/setup-git-ssh.sh`.

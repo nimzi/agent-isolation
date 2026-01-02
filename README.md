@@ -21,7 +21,14 @@ Cursor Agent CLI reads credentials from your host’s Cursor installation. Make 
 
 If you provide `GH_TOKEN` to the container, `gh` will authenticate non-interactively inside the container.
 
-**Note on `.env`:** `ai-shell up` only auto-loads `.env` from the **`--home` directory** (the Docker build context location). If you keep `.env` in your project/workdir, pass it explicitly with `--env-file`.
+**Global `.env` (optional, recommended):** `ai-shell up` will look for an env file in:
+
+- `--env-file <path>` (explicit; empty string disables)
+- `AI_SHELL_ENV_FILE=<path>`
+- `$XDG_CONFIG_HOME/ai-shell/.env`
+- `~/.config/ai-shell/.env`
+
+If no env file is found, `ai-shell up` still works; GitHub SSH bootstrap may be deferred until you authenticate `gh` interactively inside the container.
 
 Example `.env`:
 
@@ -43,9 +50,9 @@ On the **first** `ai-shell up` (when the container is created), `ai-shell` runs 
 - It generates `~/.ssh/id_ed25519` inside the container (stored in the persistent `/root` volume).
 - It adds the public key to your GitHub account via `gh ssh-key add`.
 - It configures git to use SSH for GitHub (`url."git@github.com:".insteadOf`).
-- It fails `ai-shell up` if GitHub auth is not available (so you don't end up with a half-working git setup).
+- If `gh` is not authenticated and no env file was provided, `ai-shell up` will **skip** SSH bootstrap and print next steps (you can authenticate with `gh auth login` inside the container, then re-run `ai-shell up`).
 
-Recommended: set `GH_TOKEN` in `.env` before running `ai-shell up`.
+Recommended: create a global env file with `GH_TOKEN` (or authenticate once interactively; the persistent `/root` volume keeps your `gh` login).
 
 ## Build and run
 
@@ -79,7 +86,7 @@ ai-shell up --home "$(pwd)"
 
 This script will:
 - Build the Docker image (includes Node.js + tooling for Cursor Agent CLI)
-- Create a container (optionally using `.env` **from `--home`** if present)
+- Create a container (optionally using a global env file if present)
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
@@ -109,7 +116,7 @@ docker run -d \
     -v $(pwd):/work \
     -v ai_agent_shell_home:/root \
     -v $HOME/.config/cursor:/root/.config/cursor:ro \
-    --env-file .env \
+    --env-file ~/.config/ai-shell/.env \
     ai-agent-shell
 ```
 
@@ -165,7 +172,7 @@ ai-shell rm --nuke --yes
 - **`--workdir`**: the project directory mounted at `/work` (this defines the instance identity).
 - **`--home` / `AI_SHELL_HOME`**: where `ai-shell` finds `docker/Dockerfile` and related scripts (Docker build context).
   - When installed, this is commonly `/usr/local/share/ai-shell` (or `~/.local/share/ai-shell`).
-  - The default `.env` auto-detection is also relative to `--home`.
+  - Env-file discovery for `GH_TOKEN` is global (see above) and is **not** tied to `--home`.
 
 ## Use
 
@@ -196,7 +203,7 @@ The container persists data in two locations:
 1. **Project directory** (`/work`): Files created here appear in your local directory
 2. **Docker volume** (`ai_agent_shell_home` → `/root`): Home directory, configs, and installed packages
 
-**Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate --home "$(pwd)"` to rebuild while preserving your data.
+**Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate` to rebuild while preserving your data (add `--home "$(pwd)"` if you're using the repo as the Docker build context).
 
 ## Configuration
 
