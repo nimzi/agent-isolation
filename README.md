@@ -11,11 +11,45 @@ Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/r
 
 ## Setup
 
-**Host OS note:** this setup is currently documented for a **Linux host** (for example, it mounts host Cursor credentials from `~/.config/cursor`).
+**Host OS note:** this setup is currently documented for a **Linux host** (for example, it mounts host Cursor credentials from `~/.config/cursor`). So far, `ai-shell` has only been tested on **Ubuntu 24.04**.
 
 ### 1. Prerequisite (for Cursor): Cursor installed + signed in (on the host)
 
 Cursor Agent CLI reads credentials from your host’s Cursor installation. Make sure you’re signed in on the host and that `$HOME/.config/cursor` is populated.
+
+### 1a. Cursor Agent CLI install: what to do if the download method changes
+
+On first container creation, `ai-shell up` tries to install `cursor-agent` inside the container automatically. Today it does this by running Cursor’s official installer command inside the container:
+
+```bash
+curl https://cursor.com/install -fsSL | bash
+```
+
+Because Cursor controls that URL/script, it may change in the future. If the install step fails (or Cursor moves the installer), use this workflow:
+
+- **Create/start the container without installing the agent**:
+
+```bash
+ai-shell up --no-install
+```
+
+- **Enter the container**:
+
+```bash
+ai-shell enter
+```
+
+- **Install `cursor-agent` manually using the current official instructions**:
+  - Follow the latest instructions from Cursor (they may provide a different URL, package, or command).
+  - After installing, make sure the agent is on `PATH` (many installers place binaries in `~/.local/bin`):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+command -v cursor-agent
+cursor-agent --help
+```
+
+- **Persistency note**: the container’s `/root` is a named volume, so once `cursor-agent` is installed inside the container, it should persist across rebuilds/recreates of the container.
 
 ### 2. (Optional) GitHub CLI auth via `GH_TOKEN`
 
