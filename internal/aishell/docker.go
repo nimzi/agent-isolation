@@ -13,12 +13,17 @@ import (
 )
 
 type Docker struct {
+	Runtime string        // "docker" or "podman"
 	Timeout time.Duration
 	Dir     string // working directory for docker commands (for build context / relative paths)
 }
 
 func (d Docker) cmd(ctx context.Context, args ...string) *exec.Cmd {
-	c := exec.CommandContext(ctx, "docker", args...)
+	runtime := d.Runtime
+	if runtime == "" {
+		runtime = "docker" // default for backward compatibility
+	}
+	c := exec.CommandContext(ctx, runtime, args...)
 	if d.Dir != "" {
 		c.Dir = d.Dir
 	}
@@ -33,7 +38,11 @@ func (d Docker) run(ctx context.Context, args ...string) error {
 }
 
 func (d Docker) runCapture(ctx context.Context, args ...string) (string, error) {
-	c := exec.CommandContext(ctx, "docker", args...)
+	runtime := d.Runtime
+	if runtime == "" {
+		runtime = "docker" // default for backward compatibility
+	}
+	c := exec.CommandContext(ctx, runtime, args...)
 	if d.Dir != "" {
 		c.Dir = d.Dir
 	}
@@ -52,10 +61,17 @@ func (d Docker) runCapture(ctx context.Context, args ...string) (string, error) 
 }
 
 func (d Docker) Require() error {
+	runtime := d.Runtime
+	if runtime == "" {
+		runtime = "docker" // default for backward compatibility
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 20*time.Second))
 	defer cancel()
 	_, err := d.runCapture(ctx, "version")
-	return err
+	if err != nil {
+		return fmt.Errorf("%s not available: %w", runtime, err)
+	}
+	return nil
 }
 
 func (d Docker) ContainerExists(name string) bool {
@@ -202,6 +218,15 @@ func (d Docker) VolumeNames() ([]string, error) {
 		}
 	}
 	return names, nil
+}
+
+// NewDocker creates a new Docker instance with the specified runtime
+// Validates that runtime is "docker" or "podman"
+func NewDocker(runtime string) (Docker, error) {
+	if err := validateMode(runtime); err != nil {
+		return Docker{}, err
+	}
+	return Docker{Runtime: runtime}, nil
 }
 
 func orDefault[T comparable](v T, def T) T {

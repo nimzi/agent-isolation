@@ -153,3 +153,15 @@ Finish SSH setup after authenticating:
   - or inside the container: /docker/setup-git-ssh.sh
 `, defaultPath))
 }
+
+// getConfigDir returns the directory where the config file should be located
+// (same directory as .env file)
+func getConfigDir() string {
+	envPath := defaultGlobalEnvFilePath()
+	return filepath.Dir(envPath)
+}
+
+// getConfigPath returns the full path to the config file
+func getConfigPath() string {
+	return filepath.Join(getConfigDir(), "config")
+}

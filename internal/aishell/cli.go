@@ -35,11 +35,14 @@ func newRootCmd() *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "ai-shell",
-		Short: "Manage per-workdir ai-shell Docker containers",
+		Short: "Manage per-workdir ai-shell Docker/Podman containers",
 		Long: strings.TrimSpace(`
-Manage per-workdir ai-shell Docker containers.
+Manage per-workdir ai-shell Docker/Podman containers.
 
 Workdir is the identity: one container + one /root volume per workdir.
+
+Containerization mode (docker or podman) must be configured before first use:
+  ai-shell config set-mode <docker|podman>
 
 Defaults can be overridden via env vars:
   AI_SHELL_CONTAINER (base name, default: ai-agent-shell)
@@ -48,6 +51,20 @@ Defaults can be overridden via env vars:
 `),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Skip config check for config command itself
+			// Check if this is a config subcommand by walking up the command tree
+			current := cmd
+			for current != nil {
+				if current.Use == "config" {
+					return nil
+				}
+				current = current.Parent()
+			}
+			// Ensure config exists before running any command
+			_, err := ensureConfig()
+			return err
+		},
 	}
 
 	root.PersistentFlags().StringVar(&cfg.Workdir, "workdir", "", "Target workdir (default: current directory)")
@@ -66,6 +83,7 @@ Defaults can be overridden via env vars:
 	root.AddCommand(newInstanceCmd(cfg))
 	root.AddCommand(newLsCmd(cfg))
 	root.AddCommand(newRmCmd(cfg))
+	root.AddCommand(newConfigCmd())
 
 	return root
 }
@@ -75,6 +93,17 @@ func resolveBases(cfg *Config) (containerBase, image, volumeBase string) {
 	image = firstNonEmpty(cfg.Image, os.Getenv("AI_SHELL_IMAGE"), DefaultImage)
 	volumeBase = firstNonEmpty(cfg.VolumeBase, os.Getenv("AI_SHELL_VOLUME"), DefaultVolumeBase)
 	return containerBase, image, volumeBase
+}
+
+// getRuntimeMode reads the runtime mode from config
+// This should only be called after ensureConfig() has been run
+func getRuntimeMode() string {
+	mode, err := readConfig()
+	if err != nil {
+		// This should not happen if ensureConfig() was called, but fallback to docker
+		return ModeDocker
+	}
+	return mode
 }
 
 func resolveInstance(cfg *Config) (workdir, instanceID, container, image, volume string, err error) {
@@ -240,9 +269,14 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			d := Docker{Dir: dockerDir}
+			runtime, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
+			runtime.Dir = dockerDir
+			d := runtime
 			if err := d.Require(); err != nil {
-				return fmt.Errorf("docker not available: %w", err)
+				return err
 			}
 
 			workdir, iid, container, image, volume, err := resolveInstance(cfg)
@@ -454,7 +488,10 @@ func newStartCmd(cfg *Config) *cobra.Command {
 		Short: "Start the container for this workdir",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -498,7 +535,10 @@ func newStopCmd(cfg *Config) *cobra.Command {
 		Short: "Stop the container for this workdir",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -542,7 +582,10 @@ func newStatusCmd(cfg *Config) *cobra.Command {
 		Short: "Show status for this workdir instance",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -607,7 +650,10 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 		Short: "Enter an interactive shell inside the workdir container",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -640,6 +686,7 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 			_, _ = d.ExecCapture(container, `grep -q "\.local/bin" ~/.bashrc 2>/dev/null || echo "export PATH=\"$HOME/.local/bin:$PATH\"" >> ~/.bashrc`)
 
 			tty := isTTY()
+			runtime := getRuntimeMode()
 			argsDocker := []string{"exec"}
 			if tty {
 				argsDocker = append(argsDocker, "-it")
@@ -649,7 +696,7 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 			argsDocker = append(argsDocker, container, "bash", "-l")
 
 			// Replace process for better UX (signals/TTY)
-			return execReplace("docker", argsDocker)
+			return execReplace(runtime, argsDocker)
 		},
 	}
 }
@@ -660,7 +707,10 @@ func newCheckCmd(cfg *Config) *cobra.Command {
 		Short: "Sanity-check cursor-agent + mounts (and optional gh auth)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -723,7 +773,10 @@ func newLsCmd(cfg *Config) *cobra.Command {
 		Short: "List all ai-shell managed containers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = cfg // list ignores current workdir instance
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -798,7 +851,10 @@ func newRmCmd(cfg *Config) *cobra.Command {
 		Short: "Remove the workdir container (or --nuke all ai-shell Docker state)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d := Docker{}
+			d, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
 			if err := d.Require(); err != nil {
 				return err
 			}
@@ -1018,4 +1074,35 @@ func ternary[T any](cond bool, a, b T) T {
 		return a
 	}
 	return b
+}
+
+func newConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage ai-shell configuration",
+	}
+
+	setModeCmd := &cobra.Command{
+		Use:   "set-mode <docker|podman>",
+		Short: "Set the containerization mode",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mode := strings.TrimSpace(args[0])
+			if err := validateMode(mode); err != nil {
+				return err
+			}
+
+			if err := writeConfig(mode); err != nil {
+				return err
+			}
+
+			configPath := getConfigPath()
+			fmt.Printf("OK: configured ai-shell to use %s\n", mode)
+			fmt.Printf("Config file: %s\n", configPath)
+			return nil
+		},
+	}
+
+	cmd.AddCommand(setModeCmd)
+	return cmd
 }
