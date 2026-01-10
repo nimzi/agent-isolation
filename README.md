@@ -90,6 +90,22 @@ Recommended: create a global env file with `GH_TOKEN` (or authenticate once inte
 
 ## Build and run
 
+### Configure runtime mode (required)
+
+Before first use, configure the container runtime:
+
+```bash
+ai-shell config set-mode <docker|podman>
+```
+
+Optional (but recommended): set a default base image and define aliases:
+
+```bash
+ai-shell config set-default-base-image python:3.12-slim
+ai-shell config alias set ubuntu24 ubuntu:24.04
+ai-shell config show
+```
+
 ### Install
 
 Systemwide:
@@ -125,6 +141,23 @@ This script will:
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
 
+### Base image selection (Dockerfile FROM)
+
+`ai-shell` builds its image from `docker/Dockerfile`. The Dockerfile requires a base image (the `FROM` image) via build-arg `BASE_IMAGE`.
+
+You can provide a base image for `up`/`recreate` either by flag or as an optional positional arg (and it may be an alias):
+
+```bash
+# literal base image
+ai-shell up --home "$(pwd)" --base-image ubuntu:24.04
+
+# alias (user-defined)
+ai-shell config alias set ubuntu24 ubuntu:24.04
+ai-shell up --home "$(pwd)" ubuntu24
+```
+
+Note: changing the base image affects builds. Existing containers need `--recreate` to pick up the new image.
+
 ### Multiple workdirs (multiple containers)
 
 Each **workdir** gets its own container + `/root` volume. The container/volume names are derived from the canonical (absolute) workdir path.
@@ -142,7 +175,7 @@ ai-shell ls
 **Or manually:**
 ```bash
 # Build the image
-docker build -t ai-agent-shell -f docker/Dockerfile docker
+docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim -f docker/Dockerfile docker
 
 # Create and start the container
 docker run -d \

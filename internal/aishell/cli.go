@@ -44,6 +44,10 @@ Workdir is the identity: one container + one /root volume per workdir.
 Containerization mode (docker or podman) must be configured before first use:
   ai-shell config set-mode <docker|podman>
 
+Image builds use a configurable base image (Dockerfile FROM). Configure defaults and aliases:
+  ai-shell config set-default-base-image <image|alias>
+  ai-shell config alias set <alias> <image>
+
 Defaults can be overridden via env vars:
   AI_SHELL_CONTAINER (base name, default: ai-agent-shell)
   AI_SHELL_IMAGE     (default: ai-agent-shell)
@@ -98,12 +102,12 @@ func resolveBases(cfg *Config) (containerBase, image, volumeBase string) {
 // getRuntimeMode reads the runtime mode from config
 // This should only be called after ensureConfig() has been run
 func getRuntimeMode() string {
-	mode, err := readConfig()
+	cfg, err := readConfig()
 	if err != nil {
 		// This should not happen if ensureConfig() was called, but fallback to docker
 		return ModeDocker
 	}
-	return mode
+	return cfg.Mode
 }
 
 func resolveInstance(cfg *Config) (workdir, instanceID, container, image, volume string, err error) {
@@ -239,6 +243,7 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 	var envFile string
 	var noBuild bool
 	var noInstall bool
+	var baseImage string
 	var recreate bool
 
 	use := "up"
@@ -250,8 +255,9 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   use,
+		Use:   use + " [BASE_IMAGE_OR_ALIAS]",
 		Short: short,
+		Args:  cobra.MaximumNArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			home, err := resolveHome(cfg)
 			if err != nil {
@@ -308,7 +314,15 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 			}
 
 			if !noBuild {
-				if err := d.BuildImage(image); err != nil {
+				appCfg, err := readConfig()
+				if err != nil {
+					return err
+				}
+				base, _, _, err := chooseBaseImage(baseImage, args, appCfg)
+				if err != nil {
+					return err
+				}
+				if err := d.BuildImageWithArgs(image, "--build-arg", "BASE_IMAGE="+base); err != nil {
 					return err
 				}
 			}
@@ -473,6 +487,7 @@ Output from /docker/setup-git-ssh.sh:
 
 	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
 	cmd.Flags().StringVar(&envFile, "env-file", "", "Env file to pass to docker run. Resolution: --env-file, AI_SHELL_ENV_FILE, then $XDG_CONFIG_HOME/ai-shell/.env or ~/.config/ai-shell/.env if present. Optional. Set to empty to disable.")
+	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (may be an alias defined via `ai-shell config alias`). Can also be provided as an optional positional argument.")
 	cmd.Flags().BoolVar(&noBuild, "no-build", false, "Skip docker build")
 	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip installing cursor-agent")
 	if !aliasRecreate {
@@ -1082,6 +1097,21 @@ func newConfigCmd() *cobra.Command {
 		Short: "Manage ai-shell configuration",
 	}
 
+	loadOrDefault := func() (AppConfig, error) {
+		cfg, err := readConfigLoose()
+		if err == nil {
+			return cfg, nil
+		}
+		// If missing, return a default-initialized config (mode may remain empty).
+		if strings.Contains(err.Error(), "not found") {
+			return AppConfig{
+				DefaultBaseImage: "python:3.12-slim",
+				BaseImageAliases: map[string]string{},
+			}, nil
+		}
+		return AppConfig{}, err
+	}
+
 	setModeCmd := &cobra.Command{
 		Use:   "set-mode <docker|podman>",
 		Short: "Set the containerization mode",
@@ -1091,18 +1121,142 @@ func newConfigCmd() *cobra.Command {
 			if err := validateMode(mode); err != nil {
 				return err
 			}
-
-			if err := writeConfig(mode); err != nil {
+			cfg, err := loadOrDefault()
+			if err != nil {
 				return err
 			}
-
-			configPath := getConfigPath()
+			cfg.Mode = mode
+			if err := writeConfig(cfg); err != nil {
+				return err
+			}
 			fmt.Printf("OK: configured ai-shell to use %s\n", mode)
-			fmt.Printf("Config file: %s\n", configPath)
+			fmt.Printf("Config file: %s\n", getConfigPath())
 			return nil
 		},
 	}
 
-	cmd.AddCommand(setModeCmd)
+	setDefaultBaseImageCmd := &cobra.Command{
+		Use:   "set-default-base-image <image|alias>",
+		Short: "Set the default base image for builds (Dockerfile FROM)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			val := strings.TrimSpace(args[0])
+			if err := validateNonEmptyImageRef(val); err != nil {
+				return err
+			}
+			cfg, err := loadOrDefault()
+			if err != nil {
+				return err
+			}
+			cfg.DefaultBaseImage = val
+			if err := writeConfig(cfg); err != nil {
+				return err
+			}
+			fmt.Printf("OK: default base image set to %s\n", val)
+			return nil
+		},
+	}
+
+	aliasCmd := &cobra.Command{
+		Use:   "alias",
+		Short: "Manage base image aliases",
+	}
+
+	aliasSetCmd := &cobra.Command{
+		Use:   "set <alias> <image>",
+		Short: "Set an alias for a base image",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := strings.TrimSpace(args[0])
+			val := strings.TrimSpace(args[1])
+			if !aliasKeyRE.MatchString(key) {
+				return fmt.Errorf("invalid alias %q: must match %s", key, aliasKeyRE.String())
+			}
+			if err := validateNonEmptyImageRef(val); err != nil {
+				return err
+			}
+			cfg, err := loadOrDefault()
+			if err != nil {
+				return err
+			}
+			if cfg.BaseImageAliases == nil {
+				cfg.BaseImageAliases = map[string]string{}
+			}
+			cfg.BaseImageAliases[key] = val
+			if err := writeConfig(cfg); err != nil {
+				return err
+			}
+			fmt.Printf("OK: alias %s=%s\n", key, val)
+			return nil
+		},
+	}
+
+	aliasRmCmd := &cobra.Command{
+		Use:   "rm <alias>",
+		Short: "Remove an alias",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := strings.TrimSpace(args[0])
+			cfg, err := loadOrDefault()
+			if err != nil {
+				return err
+			}
+			if cfg.BaseImageAliases == nil {
+				cfg.BaseImageAliases = map[string]string{}
+			}
+			if _, ok := cfg.BaseImageAliases[key]; !ok {
+				return fmt.Errorf("alias not found: %s", key)
+			}
+			delete(cfg.BaseImageAliases, key)
+			if err := writeConfig(cfg); err != nil {
+				return err
+			}
+			fmt.Printf("OK: removed alias %s\n", key)
+			return nil
+		},
+	}
+
+	aliasLsCmd := &cobra.Command{
+		Use:   "ls",
+		Short: "List aliases",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadOrDefault()
+			if err != nil {
+				return err
+			}
+			if len(cfg.BaseImageAliases) == 0 {
+				fmt.Println("(no aliases)")
+				return nil
+			}
+			var keys []string
+			for k := range cfg.BaseImageAliases {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("%s=%s\n", k, cfg.BaseImageAliases[k])
+			}
+			return nil
+		},
+	}
+
+	showCmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show current configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadOrDefault()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("config:             %s\n", getConfigPath())
+			fmt.Printf("mode:               %s\n", strings.TrimSpace(cfg.Mode))
+			fmt.Printf("default base image: %s\n", strings.TrimSpace(cfg.DefaultBaseImage))
+			fmt.Printf("aliases:            %d\n", len(cfg.BaseImageAliases))
+			return nil
+		},
+	}
+
+	aliasCmd.AddCommand(aliasSetCmd, aliasRmCmd, aliasLsCmd)
+	cmd.AddCommand(setModeCmd, setDefaultBaseImageCmd, aliasCmd, showCmd)
 	return cmd
 }

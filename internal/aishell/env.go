@@ -155,13 +155,16 @@ Finish SSH setup after authenticating:
 }
 
 // getConfigDir returns the directory where the config file should be located
-// (same directory as .env file)
+// (independent from env-file resolution).
 func getConfigDir() string {
-	envPath := defaultGlobalEnvFilePath()
-	return filepath.Dir(envPath)
+	// Config is a stable app preference, not tied to an optional env file.
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return filepath.Join(expandUser(xdg), "ai-shell")
+	}
+	return expandUser("~/.config/ai-shell")
 }
 
 // getConfigPath returns the full path to the config file
 func getConfigPath() string {
-	return filepath.Join(getConfigDir(), "config")
+	return filepath.Join(getConfigDir(), "config.json")
 }

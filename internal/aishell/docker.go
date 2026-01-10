@@ -13,7 +13,7 @@ import (
 )
 
 type Docker struct {
-	Runtime string        // "docker" or "podman"
+	Runtime string // "docker" or "podman"
 	Timeout time.Duration
 	Dir     string // working directory for docker commands (for build context / relative paths)
 }
@@ -123,6 +123,15 @@ func (d Docker) BuildImage(image string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 10*time.Minute))
 	defer cancel()
 	return d.run(ctx, "build", "-t", image, ".")
+}
+
+func (d Docker) BuildImageWithArgs(image string, extraArgs ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 10*time.Minute))
+	defer cancel()
+	args := []string{"build", "-t", image}
+	args = append(args, extraArgs...)
+	args = append(args, ".")
+	return d.run(ctx, args...)
 }
 
 func (d Docker) RunDetached(args ...string) error {

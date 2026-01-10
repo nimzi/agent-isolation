@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
 
 # Useful tools for debugging & typical workflows
 RUN apt-get update && apt-get install -y --no-install-recommends \
