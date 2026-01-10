@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestConfigReadWriteJSON(t *testing.T) {
+func TestConfigReadWriteTOML(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
@@ -21,8 +21,8 @@ func TestConfigReadWriteJSON(t *testing.T) {
 	if err := writeConfig(cfg); err != nil {
 		t.Fatalf("writeConfig: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "ai-shell", "config.json")); err != nil {
-		t.Fatalf("expected config.json to exist: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "ai-shell", "config.toml")); err != nil {
+		t.Fatalf("expected config.toml to exist: %v", err)
 	}
 	got, err := readConfig()
 	if err != nil {
@@ -32,7 +32,7 @@ func TestConfigReadWriteJSON(t *testing.T) {
 		t.Fatalf("expected mode=%q, got %q", ModeDocker, got.Mode)
 	}
 	if got.DefaultBaseImage != "python:3.12-slim" {
-		t.Fatalf("expected defaultBaseImage python:3.12-slim, got %q", got.DefaultBaseImage)
+		t.Fatalf("expected default-base-image python:3.12-slim, got %q", got.DefaultBaseImage)
 	}
 	if got.BaseImageAliases["u24"] != "ubuntu:24.04" {
 		t.Fatalf("expected alias u24=ubuntu:24.04, got %q", got.BaseImageAliases["u24"])

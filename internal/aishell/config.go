@@ -2,13 +2,14 @@ package aishell
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const (
@@ -17,9 +18,9 @@ const (
 )
 
 type AppConfig struct {
-	Mode             string            `json:"mode"`
-	DefaultBaseImage string            `json:"defaultBaseImage"`
-	BaseImageAliases map[string]string `json:"baseImageAliases"`
+	Mode             string            `toml:"mode"`
+	DefaultBaseImage string            `toml:"default-base-image"`
+	BaseImageAliases map[string]string `toml:"base-image-aliases"`
 }
 
 var aliasKeyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
@@ -73,7 +74,7 @@ func validateConfig(cfg AppConfig) error {
 		return err
 	}
 	if err := validateNonEmptyImageRef(cfg.DefaultBaseImage); err != nil {
-		return fmt.Errorf("defaultBaseImage: %w", err)
+		return fmt.Errorf("default-base-image: %w", err)
 	}
 	if err := validateAliases(cfg.BaseImageAliases); err != nil {
 		return err
@@ -99,8 +100,8 @@ func readConfig() (AppConfig, error) {
 		return AppConfig{}, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 	var cfg AppConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return AppConfig{}, fmt.Errorf("failed to parse config JSON %s: %w", configPath, err)
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return AppConfig{}, fmt.Errorf("failed to parse config TOML %s: %w", configPath, err)
 	}
 	cfg = normalizeConfig(cfg)
 	if err := validateConfig(cfg); err != nil {
@@ -109,7 +110,7 @@ func readConfig() (AppConfig, error) {
 	return cfg, nil
 }
 
-// readConfigLoose reads config.json but allows Mode to be empty.
+// readConfigLoose reads config.toml but allows Mode to be empty.
 // This is intended for config subcommands that can operate before mode is set.
 func readConfigLoose() (AppConfig, error) {
 	configPath := getConfigPath()
@@ -121,8 +122,8 @@ func readConfigLoose() (AppConfig, error) {
 		return AppConfig{}, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 	var cfg AppConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return AppConfig{}, fmt.Errorf("failed to parse config JSON %s: %w", configPath, err)
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return AppConfig{}, fmt.Errorf("failed to parse config TOML %s: %w", configPath, err)
 	}
 	cfg = normalizeConfig(cfg)
 	if strings.TrimSpace(cfg.DefaultBaseImage) == "" {
@@ -134,7 +135,7 @@ func readConfigLoose() (AppConfig, error) {
 		}
 	}
 	if err := validateNonEmptyImageRef(cfg.DefaultBaseImage); err != nil {
-		return AppConfig{}, fmt.Errorf("invalid config %s: defaultBaseImage: %w", configPath, err)
+		return AppConfig{}, fmt.Errorf("invalid config %s: default-base-image: %w", configPath, err)
 	}
 	if err := validateAliases(cfg.BaseImageAliases); err != nil {
 		return AppConfig{}, fmt.Errorf("invalid config %s: %w", configPath, err)
@@ -160,7 +161,7 @@ func writeConfig(cfg AppConfig) error {
 		cfg.DefaultBaseImage = "python:3.12-slim"
 	}
 	if err := validateNonEmptyImageRef(cfg.DefaultBaseImage); err != nil {
-		return fmt.Errorf("defaultBaseImage: %w", err)
+		return fmt.Errorf("default-base-image: %w", err)
 	}
 	if err := validateAliases(cfg.BaseImageAliases); err != nil {
 		return err
@@ -170,11 +171,14 @@ func writeConfig(cfg AppConfig) error {
 	}
 
 	configPath := getConfigPath()
-	b, err := json.MarshalIndent(cfg, "", "  ")
+	b, err := toml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to encode config JSON: %w", err)
+		return fmt.Errorf("failed to encode config TOML: %w", err)
 	}
-	b = append(b, '\n')
+	// toml.Marshal may not add a newline; keep files nice for humans.
+	if len(b) == 0 || b[len(b)-1] != '\n' {
+		b = append(b, '\n')
+	}
 	if err := os.WriteFile(configPath, b, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
 	}
@@ -255,7 +259,7 @@ Config directory:
 		return AppConfig{}, fmt.Errorf("failed to write config: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "OK: configured ai-shell (mode=%s, defaultBaseImage=%s)\n", selectedMode, base)
+	fmt.Fprintf(os.Stderr, "OK: configured ai-shell (mode=%s, default-base-image=%s)\n", selectedMode, base)
 	fmt.Fprintf(os.Stderr, "Config file: %s\n", filepath.Clean(getConfigPath()))
 	return cfg, nil
 }

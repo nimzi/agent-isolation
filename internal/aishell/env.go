@@ -166,5 +166,5 @@ func getConfigDir() string {
 
 // getConfigPath returns the full path to the config file
 func getConfigPath() string {
-	return filepath.Join(getConfigDir(), "config.json")
+	return filepath.Join(getConfigDir(), "config.toml")
 }

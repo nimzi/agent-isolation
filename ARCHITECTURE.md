@@ -73,13 +73,13 @@ ai-shell config set-mode <docker|podman>
 
 Mechanics (`internal/aishell/config.go`, `internal/aishell/env.go`):
 
-- Config file format: JSON (`config.json`) containing at least:
+- Config file format: TOML (`config.toml`) containing at least:
   - `mode` (`docker` or `podman`)
-  - `defaultBaseImage` (Dockerfile `FROM` image; passed as build-arg `BASE_IMAGE`)
-  - `baseImageAliases` (map of alias → docker image reference)
+  - `default-base-image` (Dockerfile `FROM` image; passed as build-arg `BASE_IMAGE`)
+  - `base-image-aliases` (map of alias → docker image reference)
 - Config file path is independent from env-file discovery:
-  - `$XDG_CONFIG_HOME/ai-shell/config.json` (preferred)
-  - `~/.config/ai-shell/config.json` (fallback)
+  - `$XDG_CONFIG_HOME/ai-shell/config.toml` (preferred)
+  - `~/.config/ai-shell/config.toml` (fallback)
 - `ensureConfig()`:
   - if config exists: read and validate
   - if missing and **TTY**: prompts for docker vs podman and writes config
@@ -130,7 +130,7 @@ Entrypoint: `cmd/ai-shell/main.go` calls `aishell.Main()`, which constructs the 
 
 - **Inputs**: one arg (`docker` or `podman`)
 - **Preconditions**: none (config command bypasses `PersistentPreRunE`)
-- **Side effects**: writes `config.json` with `0600` permissions
+- **Side effects**: writes `config.toml` with `0600` permissions
 
 ### `up` / `recreate`
 
