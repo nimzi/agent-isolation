@@ -370,3 +370,10 @@ Environment variables (can be set in `.env` or as container env vars):
 - `AI_SHELL_IMAGE`: Image name (default: `ai-agent-shell`)
 - `AI_SHELL_VOLUME`: Volume base name for `/root` (default: `ai_agent_shell_home`)
 - `GH_TOKEN`: Optional token for GitHub CLI (`gh`) authentication
+
+## Roadmap
+
+- **Nushell installation**: automatically install Nushell (`nu`) in the container (likely via the existing runtime bootstrap flow).
+- **Nushell OpenAI plugins**: automatically install/configure Nushell plugins like `gpt2099.nu` and `nu.ai`.
+- **OpenAI credentials**: provide a first-class way to configure OpenAI credentials (for example `OPENAI_API_KEY`) for tools that need them, ideally integrating with the existing env-file discovery (`$XDG_CONFIG_HOME/ai-shell/.env` or `$HOME/.config/ai-shell/.env`).
+- **Mistral via Continue (optional)**: add guidance and/or integration work to connect Mistral through [Continue](https://www.continue.dev); it should be a good option for **OCaml**-focused work.
