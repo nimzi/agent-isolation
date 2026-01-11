@@ -311,6 +311,10 @@ def main(argv: List[str]) -> int:
     info(f"bootstrap-tools: package manager={pm}")
 
     # Baseline: enough to run scripts reliably.
+    #
+    # Note: Node.js/npm are intentionally NOT installed by default. ai-shell itself
+    # does not require them; if a specific tool/installer needs node, install it
+    # manually inside the container.
     baseline = [
         PackageSpec("bash"),
         PackageSpec("curl"),
@@ -320,7 +324,6 @@ def main(argv: List[str]) -> int:
         PackageSpec("xz", optional=True),
         PackageSpec("openssh-client"),
         PackageSpec("git"),
-        PackageSpec("node", optional=True),
     ]
     install_packages(pm, baseline)
     ensure_gh(pm)

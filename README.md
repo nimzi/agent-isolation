@@ -19,13 +19,13 @@ Cursor Agent CLI reads credentials from your host’s Cursor installation. Make 
 
 ### 1a. Cursor Agent CLI install: what to do if the download method changes
 
-On first container creation, `ai-shell up` tries to install `cursor-agent` inside the container automatically. Today it does this by running Cursor’s official installer command inside the container:
+On first container creation, `ai-shell up` tries to install `cursor-agent` inside the container automatically (best-effort). Today it does this by running Cursor’s official installer command inside the container:
 
 ```bash
 curl https://cursor.com/install -fsSL | bash
 ```
 
-Because Cursor controls that URL/script, it may change in the future. If the install step fails (or Cursor moves the installer), use this workflow:
+Because Cursor controls that URL/script, it may change in the future. If the install step fails, `ai-shell up` will warn (but still succeeds). You can use this workflow:
 
 - **Create/start the container without installing the agent**:
 
@@ -94,13 +94,13 @@ Recommended: create a global env file with `GH_TOKEN` (or authenticate once inte
 
 The following `BASE_IMAGE` values (Docker images) have been tested with the runtime bootstrap that installs `python3`, `git`, `gh`, and `ssh` inside the container:
 
-| Base image | Package manager | Result | python3 | git | gh | ssh | node/npm |
-|---|---:|---:|---|---|---|---|---:|
-| `ubuntu:24.04` | apt | ✅ | 3.12.3 | 2.43.0 | 2.45.0 | OpenSSH_9.6p1 | ✅ |
-| `debian:12-slim` | apt | ✅ | 3.11.2 | 2.39.5 | 2.23.0 | OpenSSH_9.2p1 | ✅ |
-| `fedora:40` | dnf | ✅ | 3.12.8 | 2.49.0 | 2.65.0 | OpenSSH_9.6p1 | ✅ |
-| `opensuse/leap:15.6` | zypper | ✅ | 3.6.15 | 2.51.0 | 2.78.0 | OpenSSH_9.6p1 | ✅ |
-| `alpine:3.19` | apk | ✅ | 3.11.14 | 2.43.7 | 2.39.2 | OpenSSH_9.6p1 | ✅ |
+| Base image | Package manager | Result | python3 | git | gh | ssh |
+|---|---:|---:|---|---|---|---|
+| `ubuntu:24.04` | apt | ✅ | 3.12.3 | 2.43.0 | 2.45.0 | OpenSSH_9.6p1 |
+| `debian:12-slim` | apt | ✅ | 3.11.2 | 2.39.5 | 2.23.0 | OpenSSH_9.2p1 |
+| `fedora:40` | dnf | ✅ | 3.12.8 | 2.49.0 | 2.65.0 | OpenSSH_9.6p1 |
+| `opensuse/leap:15.6` | zypper | ✅ | 3.6.15 | 2.51.0 | 2.78.0 | OpenSSH_9.6p1 |
+| `alpine:3.19` | apk | ✅ | 3.11.14 | 2.43.7 | 2.39.2 | OpenSSH_9.6p1 |
 
 Notes:
 - **Versions vary by distro** (these are the observed versions from the test run).
@@ -163,7 +163,7 @@ This script will:
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
 -
-- Bootstrap tools inside the container (installs `python3`, `git`, `gh`, and `ssh`, and may install `node/npm` depending on distro packages)
+- Bootstrap tools inside the container (installs `python3`, `git`, `gh`, and `ssh`)
 
 ### Base image selection (Dockerfile FROM)
 
@@ -325,6 +325,7 @@ Seeded base image aliases:
 - `deb` → `debian:12-slim`
 - `fed` → `fedora:40`
 - `suse` → `opensuse/leap:15.6`
+- `tw` → `opensuse/tumbleweed`
 - `alp` → `alpine:3.19`
 
 `GH_TOKEN` behavior:

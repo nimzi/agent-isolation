@@ -268,7 +268,8 @@ Installs common tools including:
 
 - `bash`, `ca-certificates`, `curl`, `git`, `jq`, `ripgrep`, `gh`
 - networking/debug: `iputils-ping`, `dnsutils`, `netcat-traditional`, `procps`, `gnupg`
-- Node.js 20 via NodeSource (needed by `cursor-agent` installer/workflow)
+
+Note: Node.js/npm are **not required by `ai-shell`** and are **not installed by default**. If a specific tool/installer (including a future `cursor-agent` installer) requires node, install it manually inside the container.
 
 Copies `docker/setup-git-ssh.sh` to `/docker/setup-git-ssh.sh` and makes it executable.
 

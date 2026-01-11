@@ -243,6 +243,25 @@ func installCursorAgentIfMissing(d Docker, container string) error {
 	return nil
 }
 
+func warnCursorAgentInstallFailure(err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, strings.TrimSpace(fmt.Sprintf(`
+Warning: cursor-agent auto-install failed, but the container is still usable.
+
+Reason: %v
+
+Next steps:
+  - Skip auto-install on future runs: ai-shell up --no-install
+  - Install manually:
+      ai-shell enter
+      # inside the container, follow Cursor's current official instructions
+  - If the installer requires Node.js/npm, install node inside the container with your distro package manager.
+`, err)))
+	fmt.Fprintln(os.Stderr)
+}
+
 func bootstrapTools(d Docker, container string) error {
 	dLong := d
 	dLong.Timeout = 15 * time.Minute
@@ -368,7 +387,7 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				// even if SSH setup fails (e.g. port 22 blocked on this network).
 				if !noInstall {
 					if err := installCursorAgentIfMissing(d, container); err != nil {
-						return err
+						warnCursorAgentInstallFailure(err)
 					}
 				}
 
@@ -505,7 +524,7 @@ Output from /docker/setup-git-ssh.sh:
 
 			if !noInstall {
 				if err := installCursorAgentIfMissing(d, container); err != nil {
-					return err
+					warnCursorAgentInstallFailure(err)
 				}
 			}
 

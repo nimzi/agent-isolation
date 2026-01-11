@@ -34,6 +34,7 @@ func defaultAppConfig() AppConfig {
 			"deb":  "debian:12-slim",
 			"fed":  "fedora:40",
 			"suse": "opensuse/leap:15.6",
+			"tw":   "opensuse/tumbleweed",
 			"alp":  "alpine:3.19",
 		},
 		// Mode intentionally left empty; init / config set-mode will populate it.
