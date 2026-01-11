@@ -13,6 +13,15 @@ type EnvFileResolution struct {
 	Source string // flag, env, xdg, home, none, disabled
 }
 
+func candidateGlobalEnvPaths() []string {
+	var out []string
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		out = append(out, filepath.Join(expandUser(xdg), "ai-shell", ".env"))
+	}
+	out = append(out, expandUser("~/.config/ai-shell/.env"))
+	return out
+}
+
 func resolveEnvFileArgs(flagValue string, flagChanged bool) (EnvFileResolution, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -80,27 +89,21 @@ func resolveEnvFileArgs(flagValue string, flagChanged bool) (EnvFileResolution, 
 	}
 
 	// Defaults: XDG config first, then ~/.config.
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		cand := filepath.Join(expandUser(xdg), "ai-shell", ".env")
+	cands := candidateGlobalEnvPaths()
+	for i, cand := range cands {
 		abs, err := filepath.Abs(cand)
-		if err == nil {
-			if _, err := os.Stat(abs); err == nil {
-				return EnvFileResolution{
-					Path:   abs,
-					Args:   []string{"--env-file", abs},
-					Source: "xdg",
-				}, nil
-			}
+		if err != nil {
+			continue
 		}
-	}
-
-	homeCand := expandUser("~/.config/ai-shell/.env")
-	if abs, err := filepath.Abs(homeCand); err == nil {
 		if _, err := os.Stat(abs); err == nil {
+			source := "home"
+			if i == 0 && strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")) != "" {
+				source = "xdg"
+			}
 			return EnvFileResolution{
 				Path:   abs,
 				Args:   []string{"--env-file", abs},
-				Source: "home",
+				Source: source,
 			}, nil
 		}
 	}
@@ -109,18 +112,15 @@ func resolveEnvFileArgs(flagValue string, flagChanged bool) (EnvFileResolution, 
 }
 
 func defaultGlobalEnvFilePath() string {
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		p := filepath.Join(expandUser(xdg), "ai-shell", ".env")
-		if abs, err := filepath.Abs(p); err == nil {
-			return abs
-		}
-		return p
+	cands := candidateGlobalEnvPaths()
+	if len(cands) == 0 {
+		return "~/.config/ai-shell/.env"
 	}
-	p := expandUser("~/.config/ai-shell/.env")
-	if abs, err := filepath.Abs(p); err == nil {
+	// Prefer first candidate (XDG if set, otherwise ~/.config).
+	if abs, err := filepath.Abs(cands[0]); err == nil {
 		return abs
 	}
-	return p
+	return cands[0]
 }
 
 func formatEnvMissingWarning(defaultPath string) string {

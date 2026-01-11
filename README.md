@@ -114,6 +114,12 @@ Before first use, configure the container runtime:
 ai-shell config set-mode <docker|podman>
 ```
 
+Alternatively, run the guided initializer:
+
+```bash
+ai-shell init
+```
+
 Optional (but recommended): set a default base image and define aliases:
 
 ```bash
@@ -291,6 +297,39 @@ The container persists data in two locations:
 **Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate` to rebuild while preserving your data (add `--home "$(pwd)"` if you're using the repo as the Docker build context).
 
 ## Configuration
+
+### `ai-shell init` (recommended first-run setup)
+
+`ai-shell init` bootstraps:
+- `config.toml` (mode + seeded base image aliases)
+- a global `.env` file (optionally containing `GH_TOKEN`)
+
+Interactive (TTY):
+
+```bash
+ai-shell init
+```
+
+Non-interactive (scripts/CI; defaults to docker):
+
+```bash
+ai-shell init --yes
+```
+
+Where it writes (defaults):
+- `config.toml`: `$XDG_CONFIG_HOME/ai-shell/config.toml` or `~/.config/ai-shell/config.toml`
+- `.env`: `$XDG_CONFIG_HOME/ai-shell/.env` or `~/.config/ai-shell/.env`
+
+Seeded base image aliases:
+- `ubu` → `ubuntu:24.04`
+- `deb` → `debian:12-slim`
+- `fed` → `fedora:40`
+- `suse` → `opensuse/leap:15.6`
+- `alp` → `alpine:3.19`
+
+`GH_TOKEN` behavior:
+- Interactive: choose to (1) run a host command (default `gh auth token`), (2) enter a token manually (input hidden), or (3) skip.
+- Non-interactive: attempts `gh auth token`; if unavailable/fails, writes a placeholder comment instead.
 
 Environment variables (can be set in `.env` or as container env vars):
 

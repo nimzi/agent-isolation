@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -60,7 +61,7 @@ Defaults can be overridden via env vars:
 			// Check if this is a config subcommand by walking up the command tree
 			current := cmd
 			for current != nil {
-				if current.Use == "config" {
+				if current.Use == "config" || current.Use == "init" {
 					return nil
 				}
 				current = current.Parent()
@@ -88,6 +89,7 @@ Defaults can be overridden via env vars:
 	root.AddCommand(newLsCmd(cfg))
 	root.AddCommand(newRmCmd(cfg))
 	root.AddCommand(newConfigCmd())
+	root.AddCommand(newInitCmd())
 
 	return root
 }
@@ -224,26 +226,32 @@ func buildLabels(workdir, instanceID, volumeName string) []string {
 }
 
 func installCursorAgentIfMissing(d Docker, container string) error {
+	dLong := d
+	dLong.Timeout = 15 * time.Minute
+
 	// Avoid printing installer output; only return errors.
-	_, err := d.ExecCapture(container, "command -v cursor-agent >/dev/null 2>&1")
+	_, err := dLong.ExecCapture(container, "command -v cursor-agent >/dev/null 2>&1")
 	if err == nil {
 		return nil
 	}
 	// installer can be chatty; best-effort to keep host output minimal
-	_, err = d.ExecCapture(container, "curl https://cursor.com/install -fsSL | bash")
+	_, err = dLong.ExecCapture(container, "curl https://cursor.com/install -fsSL | bash")
 	if err != nil {
 		return fmt.Errorf("install cursor-agent: %w", err)
 	}
-	_, _ = d.ExecCapture(container, `echo "export PATH=\"$HOME/.local/bin:$PATH\"" >> ~/.bashrc`)
+	_, _ = dLong.ExecCapture(container, `echo "export PATH=\"$HOME/.local/bin:$PATH\"" >> ~/.bashrc`)
 	return nil
 }
 
 func bootstrapTools(d Docker, container string) error {
+	dLong := d
+	dLong.Timeout = 15 * time.Minute
+
 	// Stream output so the user can see progress; allocate a TTY when possible for color.
 	if isTTY() {
-		return d.ExecTty(container, "/docker/bootstrap-tools.sh")
+		return dLong.ExecTty(container, "/docker/bootstrap-tools.sh")
 	}
-	return d.Exec(container, "/docker/bootstrap-tools.sh")
+	return dLong.Exec(container, "/docker/bootstrap-tools.sh")
 }
 
 func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
@@ -367,7 +375,9 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				// SSH setup (writes keys into /root persistent volume).
 				// If an env file was provided/found, keep "fail fast" behavior.
 				if len(envRes.Args) > 0 {
-					out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh")
+					dLong := d
+					dLong.Timeout = 15 * time.Minute
+					out, err := dLong.ExecCapture(container, "/docker/setup-git-ssh.sh")
 					if err != nil {
 						out = redactSecrets(out)
 						out = strings.TrimSpace(out)
@@ -419,7 +429,9 @@ Then finish SSH setup:
 						fmt.Fprintln(os.Stderr)
 					} else {
 						// Auth already exists (likely from a prior interactive login); proceed with SSH bootstrap.
-						if out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
+						dLong := d
+						dLong.Timeout = 15 * time.Minute
+						if out, err := dLong.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
 							out = redactSecrets(out)
 							out = strings.TrimSpace(out)
 							const maxOut = 4000
@@ -470,7 +482,9 @@ Then run:
 `))
 						fmt.Fprintln(os.Stderr)
 					} else {
-						if out, err := d.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
+						dLong := d
+						dLong.Timeout = 15 * time.Minute
+						if out, err := dLong.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
 							out = redactSecrets(out)
 							out = strings.TrimSpace(out)
 							const maxOut = 4000
@@ -1120,10 +1134,7 @@ func newConfigCmd() *cobra.Command {
 		}
 		// If missing, return a default-initialized config (mode may remain empty).
 		if strings.Contains(err.Error(), "not found") {
-			return AppConfig{
-				DefaultBaseImage: "python:3.12-slim",
-				BaseImageAliases: map[string]string{},
-			}, nil
+			return defaultAppConfig(), nil
 		}
 		return AppConfig{}, err
 	}
@@ -1274,5 +1285,42 @@ func newConfigCmd() *cobra.Command {
 
 	aliasCmd.AddCommand(aliasSetCmd, aliasRmCmd, aliasLsCmd)
 	cmd.AddCommand(setModeCmd, setDefaultBaseImageCmd, aliasCmd, showCmd)
+	return cmd
+}
+
+func newInitCmd() *cobra.Command {
+	var yes bool
+	var force bool
+	var mode string
+	var configDir string
+	var envPath string
+	var ghTokenCmd string
+	var skipGHToken bool
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize ai-shell config and global env (.env)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runInit(initOptions{
+				Yes:         yes,
+				Force:       force,
+				Mode:        mode,
+				ConfigDir:   configDir,
+				EnvPath:     envPath,
+				GHTokenCmd:  ghTokenCmd,
+				SkipGHToken: skipGHToken,
+				Interactive: isTTY(),
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&yes, "yes", false, "Skip prompts (non-interactive)")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files")
+	cmd.Flags().StringVar(&mode, "mode", "", "Containerization mode (docker or podman)")
+	cmd.Flags().StringVar(&configDir, "config-dir", "", "Directory to write config.toml into (default: XDG/ ~/.config)")
+	cmd.Flags().StringVar(&envPath, "env-path", "", "Path to write .env into (default: XDG/ ~/.config)")
+	cmd.Flags().StringVar(&ghTokenCmd, "gh-token-cmd", "gh auth token", "Host command to retrieve GH_TOKEN")
+	cmd.Flags().BoolVar(&skipGHToken, "skip-gh-token", false, "Do not attempt to populate GH_TOKEN (write placeholder)")
+
 	return cmd
 }

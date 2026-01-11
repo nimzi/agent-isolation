@@ -25,6 +25,21 @@ type AppConfig struct {
 
 var aliasKeyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
+func defaultAppConfig() AppConfig {
+	return AppConfig{
+		// Default to a short alias (seeded below) so users can quickly try known-good distros.
+		DefaultBaseImage: "ubu",
+		BaseImageAliases: map[string]string{
+			"ubu":  "ubuntu:24.04",
+			"deb":  "debian:12-slim",
+			"fed":  "fedora:40",
+			"suse": "opensuse/leap:15.6",
+			"alp":  "alpine:3.19",
+		},
+		// Mode intentionally left empty; init / config set-mode will populate it.
+	}
+}
+
 // validateMode validates that mode is either "docker" or "podman"
 func validateMode(mode string) error {
 	mode = strings.TrimSpace(mode)
@@ -127,7 +142,7 @@ func readConfigLoose() (AppConfig, error) {
 	}
 	cfg = normalizeConfig(cfg)
 	if strings.TrimSpace(cfg.DefaultBaseImage) == "" {
-		cfg.DefaultBaseImage = "python:3.12-slim"
+		cfg.DefaultBaseImage = defaultAppConfig().DefaultBaseImage
 	}
 	if strings.TrimSpace(cfg.Mode) != "" {
 		if err := validateMode(cfg.Mode); err != nil {
@@ -147,7 +162,8 @@ func writeConfig(cfg AppConfig) error {
 	cfg = normalizeConfig(cfg)
 	// For writes via config subcommands, ensure aliases map exists.
 	if cfg.BaseImageAliases == nil {
-		cfg.BaseImageAliases = map[string]string{}
+		// Start with seeded defaults for new configs.
+		cfg.BaseImageAliases = defaultAppConfig().BaseImageAliases
 	}
 	// If mode is empty (e.g. user only set aliases), allow writing, but keep JSON valid.
 	// Commands that require mode will enforce it via ensureConfig/validateConfig.
@@ -158,7 +174,7 @@ func writeConfig(cfg AppConfig) error {
 	}
 	// DefaultBaseImage is required for builds; keep it non-empty on disk.
 	if strings.TrimSpace(cfg.DefaultBaseImage) == "" {
-		cfg.DefaultBaseImage = "python:3.12-slim"
+		cfg.DefaultBaseImage = defaultAppConfig().DefaultBaseImage
 	}
 	if err := validateNonEmptyImageRef(cfg.DefaultBaseImage); err != nil {
 		return fmt.Errorf("default-base-image: %w", err)
@@ -211,6 +227,7 @@ Config directory:
 	}
 
 	reader := bufio.NewReader(os.Stdin)
+	defCfg := defaultAppConfig()
 
 	// Interactive prompt: mode
 	fmt.Fprintln(os.Stderr, "ai-shell has not been configured. Please select a containerization mode:")
@@ -233,7 +250,7 @@ Config directory:
 	}
 
 	// Interactive prompt: default base image
-	def := "python:3.12-slim"
+	def := defCfg.DefaultBaseImage
 	fmt.Fprintf(os.Stderr, "\nDefault base image for builds (press Enter for %q): ", def)
 	line, err = reader.ReadString('\n')
 	if err != nil {
@@ -247,9 +264,9 @@ Config directory:
 		return AppConfig{}, fmt.Errorf("invalid default base image: %w", err)
 	}
 
-	// Preserve any existing alias map if we managed to parse it, otherwise start empty.
+	// Preserve any existing alias map if we managed to parse it, otherwise seed defaults.
 	if cfg.BaseImageAliases == nil {
-		cfg.BaseImageAliases = map[string]string{}
+		cfg.BaseImageAliases = defCfg.BaseImageAliases
 	}
 	cfg.Mode = selectedMode
 	cfg.DefaultBaseImage = base
