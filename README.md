@@ -100,10 +100,12 @@ The following `BASE_IMAGE` values (Docker images) have been tested with the runt
 | `debian:12-slim` | apt | ✅ | 3.11.2 | 2.39.5 | 2.23.0 | OpenSSH_9.2p1 |
 | `fedora:40` | dnf | ✅ | 3.12.8 | 2.49.0 | 2.65.0 | OpenSSH_9.6p1 |
 | `opensuse/leap:15.6` | zypper | ✅ | 3.6.15 | 2.51.0 | 2.78.0 | OpenSSH_9.6p1 |
+| `opensuse/tumbleweed` | zypper | ✅ | 3.13.11 | 2.52.0 | 2.83.2 | OpenSSH_10.2p1 |
 | `alpine:3.19` | apk | ✅ | 3.11.14 | 2.43.7 | 2.39.2 | OpenSSH_9.6p1 |
 
 Notes:
 - **Versions vary by distro** (these are the observed versions from the test run).
+- Tumbleweed is rolling-release; versions will change frequently.
 - For some distros, `gh` may come from distro repos; if not available, the bootstrap falls back to installing `gh` from an official GitHub CLI release.
 
 ### Configure runtime mode (required)
@@ -162,7 +164,6 @@ This script will:
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
--
 - Bootstrap tools inside the container (installs `python3`, `git`, `gh`, and `ssh`)
 
 ### Base image selection (Dockerfile FROM)
@@ -200,15 +201,32 @@ ai-shell ls
 ```bash
 # Build the image
 docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim -f docker/Dockerfile docker
+```
 
-# Create and start the container
+**Important:** `ai-shell` “metadata” is implemented as **container labels** (e.g. `com.nimzi.ai-shell.managed=true`).
+A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell`
+commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
+
+If you really want to create the container manually *and* have it be manageable by `ai-shell`, use `ai-shell instance`
+to print the correct derived names + labels for your workdir, then pass them to `docker run`:
+
+```bash
+# Print the derived container/volume names and labels for this workdir:
+ai-shell instance --workdir "$(pwd)"
+
+# Then use the printed values in your docker run. Example shape:
 docker run -d \
-    --name ai-agent-shell \
-    -v $(pwd):/work \
-    -v ai_agent_shell_home:/root \
-    -v $HOME/.config/cursor:/root/.config/cursor:ro \
-    --env-file ~/.config/ai-shell/.env \
-    ai-agent-shell
+  --name "<container_from_ai_shell_instance>" \
+  --label com.nimzi.ai-shell.managed=true \
+  --label com.nimzi.ai-shell.schema=1 \
+  --label "com.nimzi.ai-shell.workdir=<canonical_workdir_from_ai_shell_instance>" \
+  --label "com.nimzi.ai-shell.instance=<iid_from_ai_shell_instance>" \
+  --label "com.nimzi.ai-shell.volume=<volume_from_ai_shell_instance>" \
+  -v "$(pwd)":/work \
+  -v "<volume_from_ai_shell_instance>":/root \
+  -v "$HOME/.config/cursor":/root/.config/cursor:ro \
+  --env-file "$HOME/.config/ai-shell/.env" \
+  ai-agent-shell
 ```
 
 **Tip:** When using the `ai-shell` CLI (not manual `docker run`), the container name is usually `ai-agent-shell-<id>` (derived from the workdir). Run `ai-shell ls` to see the `SHORT` id and use `ai-shell enter <short>` / `ai-shell stop <short>` without typing the full container name.
