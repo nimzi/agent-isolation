@@ -6,7 +6,7 @@ Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/r
 
 - **Agent CLI(s)**: installed into the persistent `/root` volume so they survive rebuilds
 - **Host Cursor auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) into the container
-- **Dev tools**: `git`, `gh`, `curl`, `jq`, `ripgrep`, etc.
+- **Dev tools**: `git`, `gh`, `curl`, etc. (installed at runtime via `/docker/bootstrap-tools.sh`)
 - **Persistent state**: `/root` is a named Docker volume; `/work` is your bind-mounted project directory
 
 ## Setup
@@ -90,6 +90,22 @@ Recommended: create a global env file with `GH_TOKEN` (or authenticate once inte
 
 ## Build and run
 
+### Tested base images
+
+The following `BASE_IMAGE` values (Docker images) have been tested with the runtime bootstrap that installs `python3`, `git`, `gh`, and `ssh` inside the container:
+
+| Base image | Package manager | Result | python3 | git | gh | ssh | node/npm |
+|---|---:|---:|---|---|---|---|---:|
+| `ubuntu:24.04` | apt | ✅ | 3.12.3 | 2.43.0 | 2.45.0 | OpenSSH_9.6p1 | ✅ |
+| `debian:12-slim` | apt | ✅ | 3.11.2 | 2.39.5 | 2.23.0 | OpenSSH_9.2p1 | ✅ |
+| `fedora:40` | dnf | ✅ | 3.12.8 | 2.49.0 | 2.65.0 | OpenSSH_9.6p1 | ✅ |
+| `opensuse/leap:15.6` | zypper | ✅ | 3.6.15 | 2.51.0 | 2.78.0 | OpenSSH_9.6p1 | ✅ |
+| `alpine:3.19` | apk | ✅ | 3.11.14 | 2.43.7 | 2.39.2 | OpenSSH_9.6p1 | ✅ |
+
+Notes:
+- **Versions vary by distro** (these are the observed versions from the test run).
+- For some distros, `gh` may come from distro repos; if not available, the bootstrap falls back to installing `gh` from an official GitHub CLI release.
+
 ### Configure runtime mode (required)
 
 Before first use, configure the container runtime:
@@ -135,11 +151,13 @@ ai-shell up --home "$(pwd)"
 ```
 
 This script will:
-- Build the Docker image (includes Node.js + tooling for Cursor Agent CLI)
+- Build the Docker image
 - Create a container (optionally using a global env file if present)
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
+-
+- Bootstrap tools inside the container (installs `python3`, `git`, `gh`, and `ssh`, and may install `node/npm` depending on distro packages)
 
 ### Base image selection (Dockerfile FROM)
 

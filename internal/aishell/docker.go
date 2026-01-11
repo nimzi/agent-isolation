@@ -180,13 +180,21 @@ func (d Docker) RemoveImage(name string) error {
 func (d Docker) ExecCapture(container string, cmd string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
 	defer cancel()
-	return d.runCapture(ctx, "exec", container, "bash", "-lc", cmd)
+	// Use sh for portability across base images (bash may not exist yet).
+	return d.runCapture(ctx, "exec", container, "sh", "-c", cmd)
 }
 
 func (d Docker) Exec(container string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
 	defer cancel()
 	return d.run(ctx, append([]string{"exec", container}, args...)...)
+}
+
+func (d Docker) ExecTty(container string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
+	defer cancel()
+	// -t enables nicer output (colors/progress bars) when host has a TTY.
+	return d.run(ctx, append([]string{"exec", "-t", container}, args...)...)
 }
 
 func (d Docker) InspectMounts(container string) (string, error) {

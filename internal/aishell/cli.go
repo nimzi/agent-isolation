@@ -238,6 +238,14 @@ func installCursorAgentIfMissing(d Docker, container string) error {
 	return nil
 }
 
+func bootstrapTools(d Docker, container string) error {
+	// Stream output so the user can see progress; allocate a TTY when possible for color.
+	if isTTY() {
+		return d.ExecTty(container, "/docker/bootstrap-tools.sh")
+	}
+	return d.Exec(container, "/docker/bootstrap-tools.sh")
+}
+
 func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 	var cursorConfig string
 	var envFile string
@@ -344,6 +352,10 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 					return err
 				}
 
+				if err := bootstrapTools(d, container); err != nil {
+					return fmt.Errorf("bootstrap tools: %w", err)
+				}
+
 				// Install cursor-agent as early as possible so the container is still usable
 				// even if SSH setup fails (e.g. port 22 blocked on this network).
 				if !noInstall {
@@ -434,6 +446,10 @@ Output from /docker/setup-git-ssh.sh:
 					if err := d.Start(container); err != nil {
 						return err
 					}
+				}
+
+				if err := bootstrapTools(d, container); err != nil {
+					return fmt.Errorf("bootstrap tools: %w", err)
 				}
 
 				// If SSH setup was previously skipped, try again once gh auth exists.

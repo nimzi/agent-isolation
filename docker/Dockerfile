@@ -1,27 +1,15 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-# Useful tools for debugging & typical workflows
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl git jq make openssh-client ripgrep opam gh \
-    iputils-ping dnsutils netcat-traditional procps gnupg \
-  && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js and npm (for Cursor Agent CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-  && apt-get install -y --no-install-recommends nodejs \
-  && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /work
 
-# (No API-provider tooling.) Python is kept for general scripting convenience.
-
-COPY setup-git-ssh.sh /docker/setup-git-ssh.sh
-RUN chmod +x /docker/setup-git-ssh.sh
+COPY --chmod=0755 setup-git-ssh.sh /docker/setup-git-ssh.sh
+COPY --chmod=0755 bootstrap-tools.sh /docker/bootstrap-tools.sh
+COPY bootstrap-tools.py /docker/bootstrap-tools.py
 
 # Note: cursor-agent CLI is installed by `ai-shell up` after container creation
 # This is because /root is mounted as a volume, which would overwrite the installation
 # Installing it after container creation ensures it persists in the /root volume
 
-# Keep container running - use tail to prevent immediate exit
-CMD ["tail", "-f", "/dev/null"]
+# Keep container running without assuming tail/coreutils.
+CMD ["sh", "-c", "while true; do sleep 3600; done"]
