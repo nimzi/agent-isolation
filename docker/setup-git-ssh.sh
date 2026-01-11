@@ -46,7 +46,14 @@ fi
 
 # Check if this SSH public key is already added to GitHub
 PUBKEY="$(<"$SSH_KEY_PUB")"
-KEY_FINGERPRINT="$(ssh-keygen -lf "$SSH_KEY_PUB" | awk '{print $2}')"
+# Avoid depending on external text tools (e.g., awk may be missing in some base images).
+# Keep behavior identical: take the 2nd whitespace-delimited field from `ssh-keygen -lf` output.
+KEY_FINGERPRINT="$(
+    ssh-keygen -lf "$SSH_KEY_PUB" | {
+        read -r _ fp _ || exit 1
+        printf '%s' "$fp"
+    }
+)"
 KEY_TITLE="ai-shell-${KEY_FINGERPRINT}"
 
 if gh api user/keys --jq '.[].key' 2>/dev/null | grep -Fqx "$PUBKEY"; then
