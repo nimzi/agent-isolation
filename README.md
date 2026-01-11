@@ -144,6 +144,10 @@ User install:
 make install PREFIX="$HOME/.local"
 ```
 
+After `make install` (systemwide or `PREFIX="$HOME/.local"`), `ai-shell` installs its Docker build context (for example `docker/Dockerfile` and the helper scripts) under `$(PREFIX)/share/ai-shell`.
+The installed `ai-shell` binary will usually find these assets automatically, so you normally run `ai-shell up` **without** `--home`.
+Use `--home` / `AI_SHELL_HOME` only when running from a source checkout (or another non-standard layout) where `ai-shell` can’t auto-discover the build context.
+
 ### Dev
 
 ```bash
@@ -155,8 +159,10 @@ make build
 
 **First time setup (builds image, creates container, installs cursor-agent):**
 ```bash
-ai-shell up --home "$(pwd)"
+ai-shell up
 ```
+
+If you’re running from the repo without installing (for example `./bin/ai-shell` or `go run ./cmd/ai-shell`), pass `--home "$(pwd)"` (or set `AI_SHELL_HOME="$(pwd)"`) so `ai-shell` can find `docker/Dockerfile`.
 
 This script will:
 - Build the Docker image
@@ -174,12 +180,14 @@ You can provide a base image for `up`/`recreate` either by flag or as an optiona
 
 ```bash
 # literal base image
-ai-shell up --home "$(pwd)" --base-image ubuntu:24.04
+ai-shell up --base-image ubuntu:24.04
 
 # alias (user-defined)
 ai-shell config alias set ubuntu24 ubuntu:24.04
-ai-shell up --home "$(pwd)" ubuntu24
+ai-shell up ubuntu24
 ```
+
+From a source checkout (no `make install`), add `--home "$(pwd)"` so `ai-shell` can find `docker/Dockerfile`.
 
 Note: changing the base image affects builds. Existing containers need `--recreate` to pick up the new image.
 
@@ -191,7 +199,7 @@ Examples:
 
 ```bash
 # Create/start an instance for some other project folder
-ai-shell up --home "$(pwd)" --workdir /path/to/project
+ai-shell up --workdir /path/to/project
 
 # List all managed instances
 ai-shell ls
@@ -240,10 +248,10 @@ The `ai-shell` CLI provides a convenient way to start/stop/recreate and enter th
 **Usage:**
 ```bash
 ai-shell --help
-ai-shell status --home "$(pwd)"       # affects current directory's instance
-ai-shell stop --home "$(pwd)"         # affects current directory's instance
-ai-shell start --home "$(pwd)"        # affects current directory's instance
-ai-shell stop --home "$(pwd)" --workdir /path/to/project
+ai-shell status       # affects current directory's instance
+ai-shell stop         # affects current directory's instance
+ai-shell start        # affects current directory's instance
+ai-shell stop --workdir /path/to/project
 
 # Or target an instance by SHORT/IID/container prefix:
 ai-shell ls
@@ -274,13 +282,19 @@ ai-shell rm --nuke --yes
 - Provides clear error messages if the container doesn't exist or operations fail
 - Respects the `AI_SHELL_CONTAINER` environment variable for custom container names
 
-**Note:** If the container doesn't exist, run `ai-shell up --home "$(pwd)"` first to create it.
+**Note:** If the container doesn't exist, run `ai-shell up` first to create it. (When running from a source checkout without installation, add `--home` / `AI_SHELL_HOME`.)
 
 ### `--home` vs `--workdir` (important)
 
 - **`--workdir`**: the project directory mounted at `/work` (this defines the instance identity).
-- **`--home` / `AI_SHELL_HOME`**: where `ai-shell` finds `docker/Dockerfile` and related scripts (Docker build context).
-  - When installed, this is commonly `/usr/local/share/ai-shell` (or `~/.local/share/ai-shell`).
+- **`--home` / `AI_SHELL_HOME`**: points to the **Docker build context** (where `docker/Dockerfile` lives).
+  - Typical installed locations are auto-detected (for example `~/.local/share/ai-shell` or `/usr/local/share/ai-shell`).
+  - You usually do **not** need `--home` after `make install`.
+  - When you *do* need it:
+    - running from a git checkout / dev build (`go run ...`, `./bin/ai-shell`)
+    - tests/CI/AI agent operating on a workspace
+    - custom packaging or another non-standard install layout
+  - Precedence: `--home` > `AI_SHELL_HOME` > auto-discovery.
   - Env-file discovery for `GH_TOKEN` is global (see above) and is **not** tied to `--home`.
 
 ## Use
@@ -312,7 +326,7 @@ The container persists data in two locations:
 1. **Project directory** (`/work`): Files created here appear in your local directory
 2. **Docker volume** (`ai_agent_shell_home` → `/root`): Home directory, configs, and installed packages
 
-**Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate` to rebuild while preserving your data (add `--home "$(pwd)"` if you're using the repo as the Docker build context).
+**Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate` to rebuild while preserving your data (when running from a source checkout without installation, add `--home "$(pwd)"` or set `AI_SHELL_HOME="$(pwd)"` so `ai-shell` can find `docker/Dockerfile`).
 
 ## Configuration
 
