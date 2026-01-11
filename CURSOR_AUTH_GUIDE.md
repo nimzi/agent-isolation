@@ -35,10 +35,17 @@ This mounts your host's Cursor config directory to the container's config locati
 ### Step 4: Verify in Container
 
 After creating the container, verify credentials are accessible:
+
+- `--workdir` selects which project/instance you’re working with.
+- `--home` points to the Docker build context; an installed `ai-shell` typically auto-discovers it.
+- Precedence: `--home` > `AI_SHELL_HOME` > auto-discovery.
+
 ```bash
-ai-shell up --home "$(pwd)"
-ai-shell check --home "$(pwd)"
+ai-shell up
+ai-shell check
 ```
+
+If you’re running from a source checkout without installing (for example `./bin/ai-shell` or `go run ./cmd/ai-shell`), pass `--home "$(pwd)"` or set `AI_SHELL_HOME="$(pwd)"` so `ai-shell` can find `docker/Dockerfile`.
 
 **What `ai-shell check` verifies:** it confirms `cursor-agent` is installed and that `/root/.config/cursor` is present/readable inside the container. It does not guarantee the directory contains valid credentials (for that, ensure your host Cursor is signed in and the host directory is populated).
 
@@ -79,8 +86,9 @@ ai-shell check --home "$(pwd)"
 
 3. **Check container creation:**
    ```bash
-   ai-shell status --home "$(pwd)"
+   ai-shell status
    ```
+   (If running from a source checkout without installation, add `--home` / `AI_SHELL_HOME`.)
    Should show the cursor config mount and the derived container name.
 
 4. **Verify Cursor is installed on host:**
