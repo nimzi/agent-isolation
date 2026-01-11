@@ -97,15 +97,34 @@ If you’re running from a source checkout without installing (for example `./bi
 
 ### Manual Container Creation
 
-If creating manually, don't forget the mount (use unique names per workdir):
+Prefer using `ai-shell up` for normal usage. Manual container creation is mainly for advanced debugging or scripting.
+
+If you build/run manually, here’s the important bit: `ai-shell` “metadata” is implemented as **container labels** (for example `com.nimzi.ai-shell.managed=true`). A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell` commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
+
+If you really want to create the container manually *and* have it be manageable by `ai-shell`, use `ai-shell instance` to print the correct derived names + labels for your workdir, then pass them to `docker run`:
+
 ```bash
+# Build the image (from this repo checkout)
+docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim -f docker/Dockerfile docker
+
+# Print the derived container/volume names and labels for this workdir:
+ai-shell instance --workdir "$(pwd)"
+
+# Then use the printed values in your docker run. Example shape:
 docker run -d \
-    --name ai-agent-shell-<id> \
-    -v $(pwd):/work \
-    -v ai_agent_shell_home_<id>:/root \
-    -v $HOME/.config/cursor:/root/.config/cursor:ro \
-    --env-file ~/.config/ai-shell/.env \
-    ai-agent-shell
+  --name "<container_from_ai_shell_instance>" \
+  --label com.nimzi.ai-shell.managed=true \
+  --label com.nimzi.ai-shell.schema=1 \
+  --label "com.nimzi.ai-shell.workdir=<canonical_workdir_from_ai_shell_instance>" \
+  --label "com.nimzi.ai-shell.instance=<iid_from_ai_shell_instance>" \
+  --label "com.nimzi.ai-shell.volume=<volume_from_ai_shell_instance>" \
+  -v "$(pwd)":/work \
+  -v "<volume_from_ai_shell_instance>":/root \
+  -v "$HOME/.config/cursor":/root/.config/cursor:ro \
+  --env-file "$HOME/.config/ai-shell/.env" \
+  ai-agent-shell
 ```
 
-Note: the env file is optional; you can also authenticate inside the container with `gh auth login` and then run `/docker/setup-git-ssh.sh`.
+GitHub auth/SSH note: the env file is optional; you can authenticate inside the container with `gh auth login`. If you want the same SSH bootstrap behavior as `ai-shell up`, you can also run `/docker/setup-git-ssh.sh` inside the container.
+
+For full manual build/run details and labeling semantics, see `README.md` → “Multiple workdirs (multiple containers)” → “Or manually:”.
