@@ -1,6 +1,7 @@
 package aishell
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -12,6 +13,22 @@ func isTTY() bool {
 	in, _ := os.Stdin.Stat()
 	out, _ := os.Stdout.Stat()
 	return (in.Mode()&os.ModeCharDevice) != 0 && (out.Mode()&os.ModeCharDevice) != 0
+}
+
+func isStderrTTY() bool {
+	info, _ := os.Stderr.Stat()
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+// warnf prints a warning message to stderr, in yellow if stderr is a TTY.
+func warnf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	if isStderrTTY() {
+		// ANSI yellow: \033[33m ... \033[0m
+		fmt.Fprint(os.Stderr, "\033[33m"+msg+"\033[0m")
+	} else {
+		fmt.Fprint(os.Stderr, msg)
+	}
 }
 
 func execReplace(bin string, args []string) error {
