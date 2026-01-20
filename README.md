@@ -284,6 +284,53 @@ ai-shell rm --nuke --yes
 
 **Note:** If the container doesn't exist, run `ai-shell up` first to create it. (When running from a source checkout without installation, add `--home` / `AI_SHELL_HOME`.)
 
+### Ejecting to Docker Compose
+
+The `eject` command exports a standalone Docker Compose configuration:
+
+```bash
+ai-shell eject
+```
+
+This creates a `.ai-shell/` directory containing:
+- `Dockerfile` (with resolved base image)
+- `docker-compose.yml` (with correct container names, labels, mounts)
+- Helper scripts (`bootstrap-tools.sh`, `bootstrap-tools.py`, `setup-git-ssh.sh`)
+- `README.md` with usage instructions
+
+**When to use eject:**
+- You want to customize the Docker setup beyond what `ai-shell` flags provide
+- You prefer using `docker compose` commands directly
+- You want to commit the container configuration to your repo
+
+**Options:**
+- `--output DIR` / `-o DIR`: Custom output directory (default: `.ai-shell/`)
+- `--base-image IMAGE`: Override base image
+- `--force`: Overwrite existing files
+
+**After ejecting:**
+
+You can use either `docker compose` directly or continue using `ai-shell` commands:
+
+```bash
+# Using docker compose
+cd .ai-shell
+docker compose up -d --build
+docker compose exec ai-shell bash
+
+# Or using ai-shell (still works - detects .ai-shell/ directory)
+ai-shell up      # runs docker compose automatically
+ai-shell enter   # enters the container
+ai-shell status  # shows container status
+```
+
+When `ai-shell up` detects an ejected workspace (`.ai-shell/` exists), it:
+1. Runs `docker compose up -d --build`
+2. Runs `/docker/bootstrap-tools.sh` to install dev tools
+3. Runs `/docker/setup-git-ssh.sh` if `gh` is authenticated (skips with warning otherwise)
+
+**Note:** `ai-shell recreate` is blocked on ejected workspaces. Use `docker compose down && docker compose up -d --build` instead, or delete `.ai-shell/` to return to normal `ai-shell` management.
+
 ### `--home` vs `--workdir` (important)
 
 - **`--workdir`**: the project directory mounted at `/work` (this defines the instance identity).
