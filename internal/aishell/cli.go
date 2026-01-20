@@ -90,6 +90,7 @@ Defaults can be overridden via env vars:
 	root.AddCommand(newRmCmd(cfg))
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newEjectCmd(cfg))
 
 	return root
 }
@@ -1340,6 +1341,87 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&envPath, "env-path", "", "Path to write .env into (default: XDG/ ~/.config)")
 	cmd.Flags().StringVar(&ghTokenCmd, "gh-token-cmd", "gh auth token", "Host command to retrieve GH_TOKEN")
 	cmd.Flags().BoolVar(&skipGHToken, "skip-gh-token", false, "Do not attempt to populate GH_TOKEN (write placeholder)")
+
+	return cmd
+}
+
+func newEjectCmd(cfg *Config) *cobra.Command {
+	var outputDir string
+	var baseImage string
+	var cursorConfig string
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "eject [--output DIR] [--base-image IMAGE] [--force]",
+		Short: "Export Docker Compose configuration for this workdir",
+		Long: strings.TrimSpace(`
+Export a standalone Docker Compose configuration for this workdir.
+
+This creates a .ai-shell/ directory (or custom --output) containing:
+  - Dockerfile (with resolved base image)
+  - docker-compose.yml (with correct names, labels, mounts)
+  - Helper scripts: bootstrap-tools.sh, bootstrap-tools.py, setup-git-ssh.sh
+  - README.md explaining usage
+
+The generated files work with both docker compose and podman-compose.
+
+The ai-shell CLI commands (status, enter, etc.) will continue to work
+with containers created from the ejected configuration.
+`),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Resolve workdir
+			workdir, err := CanonicalWorkdir(cfg.Workdir)
+			if err != nil {
+				return err
+			}
+
+			// Determine output directory
+			outDir := outputDir
+			if outDir == "" {
+				outDir = filepath.Join(workdir, ".ai-shell")
+			} else {
+				outDir = expandUser(outDir)
+				if !filepath.IsAbs(outDir) {
+					outDir = filepath.Join(workdir, outDir)
+				}
+			}
+
+			// Resolve cursor config directory
+			cursorDir, err := ensureCursorConfigDir(cursorConfig)
+			if err != nil {
+				return err
+			}
+
+			// Resolve base image
+			appCfg, err := readConfig()
+			if err != nil {
+				return err
+			}
+			base, _, _, err := chooseBaseImage(baseImage, nil, appCfg)
+			if err != nil {
+				return err
+			}
+
+			// Export files
+			if err := exportFiles(outDir, workdir, cfg, base, cursorDir, force); err != nil {
+				return err
+			}
+
+			fmt.Printf("OK: ejected to %s\n", outDir)
+			fmt.Println()
+			fmt.Println("Usage:")
+			fmt.Printf("  cd %s\n", outDir)
+			fmt.Println("  docker compose up -d --build")
+			fmt.Println("  docker compose exec ai-shell bash")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: .ai-shell/ in workdir)")
+	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (default: configured default)")
+	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files")
 
 	return cmd
 }

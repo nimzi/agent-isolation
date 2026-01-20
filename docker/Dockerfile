@@ -3,9 +3,10 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /work
 
-COPY --chmod=0755 setup-git-ssh.sh /docker/setup-git-ssh.sh
-COPY --chmod=0755 bootstrap-tools.sh /docker/bootstrap-tools.sh
+COPY setup-git-ssh.sh /docker/setup-git-ssh.sh
+COPY bootstrap-tools.sh /docker/bootstrap-tools.sh
 COPY bootstrap-tools.py /docker/bootstrap-tools.py
+RUN chmod 0755 /docker/setup-git-ssh.sh /docker/bootstrap-tools.sh
 
 # Note: cursor-agent CLI is installed by `ai-shell up` after container creation
 # This is because /root is mounted as a volume, which would overwrite the installation
