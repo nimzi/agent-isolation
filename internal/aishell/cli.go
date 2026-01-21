@@ -148,8 +148,9 @@ func requireManaged(d Docker, container string, expectedWorkdir string) error {
 	if labels == nil || labels[LabelManaged] != "true" {
 		return fmt.Errorf("refusing: container %q is not managed by ai-shell (missing label %s=true)", container, LabelManaged)
 	}
-	if got := labels[LabelWorkdir]; got != expectedWorkdir {
-		return fmt.Errorf("refusing: container %q workdir label mismatch\nexpected: %s\nfound:    %s", container, expectedWorkdir, got)
+	// Discover workdir from /work bind mount (single source of truth).
+	if got := info.Workdir(); got != expectedWorkdir {
+		return fmt.Errorf("refusing: container %q workdir mismatch\nexpected: %s\nfound:    %s", container, expectedWorkdir, got)
 	}
 	return nil
 }
@@ -261,11 +262,12 @@ Next steps:
 	return nil
 }
 
-func buildLabels(workdir, instanceID, volumeName string) []string {
+// buildLabels returns docker run --label args for ai-shell managed containers.
+// Note: workdir is NOT stored as a label; it's discovered from the /work bind mount.
+func buildLabels(instanceID, volumeName string) []string {
 	return []string{
 		"--label", LabelManaged + "=true",
 		"--label", LabelSchema + "=1",
-		"--label", LabelWorkdir + "=" + workdir,
 		"--label", LabelInstance + "=" + instanceID,
 		"--label", LabelVolume + "=" + volumeName,
 	}
@@ -406,10 +408,10 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 			}
 
 			if !d.ContainerExists(container) {
-				args := []string{
-					"--name", container,
-				}
-				args = append(args, buildLabels(workdir, iid, volume)...)
+			args := []string{
+				"--name", container,
+			}
+			args = append(args, buildLabels(iid, volume)...)
 				args = append(args,
 					"-v", workdir+":/work",
 					"-v", volume+":/root",

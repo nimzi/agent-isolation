@@ -8,7 +8,7 @@ const (
 	LabelNS       = "com.nimzi.ai-shell"
 	LabelManaged  = LabelNS + ".managed"
 	LabelSchema   = LabelNS + ".schema"
-	LabelWorkdir  = LabelNS + ".workdir"
 	LabelInstance = LabelNS + ".instance"
 	LabelVolume   = LabelNS + ".volume"
+	// Note: workdir is NOT stored as a label; it's discovered from the /work bind mount.
 )

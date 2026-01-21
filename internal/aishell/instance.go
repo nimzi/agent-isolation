@@ -34,9 +34,9 @@ This command does not require Docker.
 			fmt.Printf("labels:\n")
 			fmt.Printf("  %s=true\n", LabelManaged)
 			fmt.Printf("  %s=1\n", LabelSchema)
-			fmt.Printf("  %s=%s\n", LabelWorkdir, workdir)
 			fmt.Printf("  %s=%s\n", LabelInstance, iid)
 			fmt.Printf("  %s=%s\n", LabelVolume, volume)
+			fmt.Printf("note: workdir is discovered from /work bind mount, not stored as a label\n")
 			return nil
 		},
 	}

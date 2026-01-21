@@ -28,9 +28,10 @@ func listManagedInstances(d Docker) ([]ManagedInstance, error) {
 		if err != nil {
 			continue
 		}
-		var wd, iid, vol string
+		// Discover workdir from /work bind mount (single source of truth).
+		wd := info.Workdir()
+		var iid, vol string
 		if info.Config.Labels != nil {
-			wd = info.Config.Labels[LabelWorkdir]
 			iid = info.Config.Labels[LabelInstance]
 			vol = info.Config.Labels[LabelVolume]
 		}

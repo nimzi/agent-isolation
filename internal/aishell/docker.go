@@ -100,6 +100,21 @@ type InspectContainer struct {
 	State struct {
 		Status string `json:"Status"`
 	} `json:"State"`
+	Mounts []struct {
+		Type        string `json:"Type"`
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+	} `json:"Mounts"`
+}
+
+// Workdir returns the host path of the /work bind mount, or empty if not found.
+func (ic InspectContainer) Workdir() string {
+	for _, m := range ic.Mounts {
+		if m.Destination == "/work" && m.Type == "bind" {
+			return m.Source
+		}
+	}
+	return ""
 }
 
 func (d Docker) InspectContainer(name string) (InspectContainer, error) {

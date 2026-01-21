@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.0**
+**Current version: 0.1.1**
 
 Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
 
@@ -234,6 +234,18 @@ docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
 A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell`
 commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
 
+### Workdir Discovery from /work Mount
+
+`ai-shell` discovers the workdir dynamically from the container's `/work` bind mount rather than storing it as a label. This provides:
+
+- **Portability**: `docker-compose.yml` files can be committed to source control without machine-specific paths
+- **Single source of truth**: The `/work` bind mount is the canonical identity
+- **Consistency**: Both `ai-shell up` and `docker compose` use the same mechanism
+
+Every ai-shell container mounts the workdir to `/work`:
+- Via `docker-compose.yml`: `..:/work` (relative to `.ai-shell/`)
+- Via `ai-shell up`: `-v workdir:/work`
+
 If you really want to create the container manually *and* have it be manageable by `ai-shell`, use `ai-shell instance`
 to print the correct derived names + labels for your workdir, then pass them to `docker run`:
 
@@ -246,7 +258,6 @@ docker run -d \
   --name "<container_from_ai_shell_instance>" \
   --label com.nimzi.ai-shell.managed=true \
   --label com.nimzi.ai-shell.schema=1 \
-  --label "com.nimzi.ai-shell.workdir=<canonical_workdir_from_ai_shell_instance>" \
   --label "com.nimzi.ai-shell.instance=<iid_from_ai_shell_instance>" \
   --label "com.nimzi.ai-shell.volume=<volume_from_ai_shell_instance>" \
   -v "$(pwd)":/work \
@@ -255,6 +266,8 @@ docker run -d \
   --env-file "$HOME/.config/ai-shell/.env" \
   ai-agent-shell
 ```
+
+**Note:** The workdir is NOT stored as a label; `ai-shell` discovers it from the `/work` bind mount at runtime.
 
 **Tip:** When using the `ai-shell` CLI (not manual `docker run`), the container name is usually `ai-agent-shell-<id>` (derived from the workdir). Run `ai-shell ls` to see the `SHORT` id and use `ai-shell enter <short>` / `ai-shell stop <short>` without typing the full container name.
 
