@@ -222,8 +222,8 @@ ai-shell ls
 
 **Or manually:**
 ```bash
-# Build the image
-docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim -f docker/Dockerfile docker
+# Build the image (from a project with .ai-shell/ scaffolded)
+docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
 ```
 
 **Important:** `ai-shell` “metadata” is implemented as **container labels** (e.g. `com.nimzi.ai-shell.managed=true`).
@@ -380,6 +380,18 @@ Where it writes (defaults):
 - `config.toml`: `$XDG_CONFIG_HOME/ai-shell/config.toml` or `~/.config/ai-shell/config.toml`
 - `.env`: `$XDG_CONFIG_HOME/ai-shell/.env` or `~/.config/ai-shell/.env`
 
+Seeded base image aliases:
+- `ubu` → `ubuntu:24.04`
+- `deb` → `debian:12-slim`
+- `fed` → `fedora:40`
+- `suse` → `opensuse/leap:15.6`
+- `tw` → `opensuse/tumbleweed`
+- `alp` → `alpine:3.19`
+
+`GH_TOKEN` behavior:
+- Interactive: choose to (1) run a host command (default `gh auth token`), (2) enter a token manually (input hidden), or (3) skip.
+- Non-interactive: attempts `gh auth token`; if unavailable/fails, writes a placeholder comment instead.
+
 ### `ai-shell init` (per-project)
 
 `ai-shell init` scaffolds per-project configuration:
@@ -402,18 +414,6 @@ ai-shell init --workdir /path/to/project
 
 Where it writes:
 - `.ai-shell/`: in the current workdir (or `--workdir`)
-
-Seeded base image aliases:
-- `ubu` → `ubuntu:24.04`
-- `deb` → `debian:12-slim`
-- `fed` → `fedora:40`
-- `suse` → `opensuse/leap:15.6`
-- `tw` → `opensuse/tumbleweed`
-- `alp` → `alpine:3.19`
-
-`GH_TOKEN` behavior:
-- Interactive: choose to (1) run a host command (default `gh auth token`), (2) enter a token manually (input hidden), or (3) skip.
-- Non-interactive: attempts `gh auth token`; if unavailable/fails, writes a placeholder comment instead.
 
 Environment variables (can be set in `.env` or as container env vars):
 

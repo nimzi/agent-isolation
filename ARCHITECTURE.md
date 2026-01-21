@@ -139,7 +139,6 @@ Entrypoint: `cmd/ai-shell/main.go` calls `aishell.Main()`, which constructs the 
 Inputs:
 
 - `--workdir` (instance identity; default cwd)
-- 
 - `--cursor-config` (host cursor dir; default `~/.config/cursor`)
 - `--env-file` (optional env-file injection; see “Global env file resolution”)
 - `--base-image` or optional positional `BASE_IMAGE_OR_ALIAS` (Dockerfile `FROM` image; may be an alias)

@@ -36,20 +36,16 @@ This mounts your host's Cursor config directory to the container's config locati
 
 After creating the container, verify credentials are accessible:
 
-- `--workdir` selects which project/instance you’re working with.
-- `--home` points to the Docker build context; an installed `ai-shell` typically auto-discovers it.
-- Precedence: `--home` > `AI_SHELL_HOME` > auto-discovery.
+- `--workdir` selects which project/instance you're working with.
 
 ```bash
 ai-shell up
 ai-shell check
 ```
 
-If you’re running from a source checkout without installing (for example `./bin/ai-shell` or `go run ./cmd/ai-shell`), pass `--home "$(pwd)"` or set `AI_SHELL_HOME="$(pwd)"` so `ai-shell` can find `docker/Dockerfile`.
-
 **What `ai-shell check` verifies:** it confirms `cursor-agent` is installed and that `/root/.config/cursor` is present/readable inside the container. It does not guarantee the directory contains valid credentials (for that, ensure your host Cursor is signed in and the host directory is populated).
 
-**Tip:** Use `ai-shell ls` and copy the `SHORT` id; you can target a specific instance with `ai-shell enter <short>`. Prefixes must be unique; if not, `ai-shell` will print an “ambiguous target” error with candidates.
+**Tip:** Use `ai-shell ls` and copy the `SHORT` id; you can target a specific instance with `ai-shell enter <short>`. Prefixes must be unique; if not, `ai-shell` will print an "ambiguous target" error with candidates.
 
 ### How It Works
 
@@ -88,7 +84,6 @@ If you’re running from a source checkout without installing (for example `./bi
    ```bash
    ai-shell status
    ```
-   (If running from a source checkout without installation, add `--home` / `AI_SHELL_HOME`.)
    Should show the cursor config mount and the derived container name.
 
 4. **Verify Cursor is installed on host:**
@@ -99,13 +94,13 @@ If you’re running from a source checkout without installing (for example `./bi
 
 Prefer using `ai-shell up` for normal usage. Manual container creation is mainly for advanced debugging or scripting.
 
-If you build/run manually, here’s the important bit: `ai-shell` “metadata” is implemented as **container labels** (for example `com.nimzi.ai-shell.managed=true`). A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell` commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
+If you build/run manually, here's the important bit: `ai-shell` "metadata" is implemented as **container labels** (for example `com.nimzi.ai-shell.managed=true`). A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell` commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
 
 If you really want to create the container manually *and* have it be manageable by `ai-shell`, use `ai-shell instance` to print the correct derived names + labels for your workdir, then pass them to `docker run`:
 
 ```bash
-# Build the image (from this repo checkout)
-docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim -f docker/Dockerfile docker
+# Build the image (from a project with .ai-shell/ scaffolded)
+docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
 
 # Print the derived container/volume names and labels for this workdir:
 ai-shell instance --workdir "$(pwd)"
@@ -125,6 +120,6 @@ docker run -d \
   ai-agent-shell
 ```
 
-GitHub auth/SSH note: the env file is optional; you can authenticate inside the container with `gh auth login`. If you want the same SSH bootstrap behavior as `ai-shell up`, you can also run `/docker/setup-git-ssh.sh` inside the container.
+GitHub auth/SSH note: the env file is optional; you can authenticate inside the container with `gh auth login`. If you want the same SSH bootstrap behavior as `ai-shell up`, you can also run `/work/.ai-shell/setup-git-ssh.sh` inside the container.
 
-For full manual build/run details and labeling semantics, see `README.md` → “Multiple workdirs (multiple containers)” → “Or manually:”.
+For full manual build/run details and labeling semantics, see `README.md` → "Multiple workdirs (multiple containers)" → "Or manually:".

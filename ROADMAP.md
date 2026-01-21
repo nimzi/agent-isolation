@@ -89,7 +89,7 @@ Move all script logic into Go and use SDKs throughout. Eliminate shell scripts e
    - Call `gh ssh-key add` via exec
    - Configure git via exec(`git config`)
    - Test SSH connection with retries
-4. Remove `docker/bootstrap-tools.sh`, `docker/bootstrap-tools.py`, `docker/setup-git-ssh.sh`
+4. Remove embedded scripts from `internal/aishell/scripts/` (bootstrap-tools.sh, bootstrap-tools.py, setup-git-ssh.sh)
 5. Simplify Dockerfile (no script copying)
 
 **Pros:**
@@ -107,7 +107,9 @@ Move all script logic into Go and use SDKs throughout. Eliminate shell scripts e
 
 ---
 
-### Option C: Hybrid - SDK + Embedded Scripts
+### Option C: Hybrid - SDK + Embedded Scripts (IMPLEMENTED)
+
+**Status:** The script embedding portion of this option has been implemented. Scripts are now embedded in the binary via `//go:embed` (see `internal/aishell/scripts/`) and scaffolded to `.ai-shell/` per-project by `ai-shell init`. The SDK migration (replacing CLI wrapper with native Go SDKs) remains as future work.
 
 Use SDKs for orchestration, but embed scripts as Go string constants or `embed.FS`.
 
