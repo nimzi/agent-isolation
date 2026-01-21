@@ -36,8 +36,9 @@ func newRootCmd() *cobra.Command {
 	cfg := &Config{}
 
 	root := &cobra.Command{
-		Use:   "ai-shell",
-		Short: "Manage per-workdir ai-shell Docker/Podman containers",
+		Use:     "ai-shell",
+		Short:   "Manage per-workdir ai-shell Docker/Podman containers",
+		Version: Version,
 		Long: strings.TrimSpace(`
 Manage per-workdir ai-shell Docker/Podman containers.
 

@@ -1,5 +1,7 @@
 # AI Agent CLI in Docker
 
+**Current version: 0.1.0**
+
 Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
 
 ## What you get
