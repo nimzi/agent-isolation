@@ -6,7 +6,7 @@ This document summarizes the **internal invariants** and **runtime contract** of
 
 `ai-shell` manages **one container + one persistent `/root` volume per workdir**. The project workdir is bind-mounted to `/work`. Host Cursor credentials are mounted **read-only** into `/root/.config/cursor`.
 
-The container image is built from `docker/Dockerfile`. The container runs as a long-lived “toolbox” (`tail -f /dev/null`) that you enter via `ai-shell enter`.
+The container image is built from `.ai-shell/Dockerfile`. The container runs as a long-lived “toolbox” (`tail -f /dev/null`) that you enter via `ai-shell enter`.
 
 ## Key invariants (identity + safety)
 
@@ -139,7 +139,7 @@ Entrypoint: `cmd/ai-shell/main.go` calls `aishell.Main()`, which constructs the 
 Inputs:
 
 - `--workdir` (instance identity; default cwd)
-- `--home` / `AI_SHELL_HOME` (where to find build context; see “Packaging / assets”)
+- 
 - `--cursor-config` (host cursor dir; default `~/.config/cursor`)
 - `--env-file` (optional env-file injection; see “Global env file resolution”)
 - `--base-image` or optional positional `BASE_IMAGE_OR_ALIAS` (Dockerfile `FROM` image; may be an alias)
@@ -151,11 +151,12 @@ Preconditions:
 
 - Configured mode (via `ensureConfig()` pre-run)
 - Runtime available (`docker version` / `podman version`)
-- Build context resolvable (see `resolveHome()` / `resolveDockerDir()`)
+- `.ai-shell/` directory must exist in workdir (run `ai-shell setup` once, then `ai-shell init` per project)
 
 Main behavior (`newUpCmd()` in `internal/aishell/cli.go`):
 
-- Resolve build context dir (`resolveHome()` → `resolveDockerDir()`)
+- Verify `.ai-shell/` exists (fail with "Run 'ai-shell init' first" if missing; requires `ai-shell setup` first)
+- Use `.ai-shell/` as build context
 - Instantiate runtime adapter: `NewDocker(getRuntimeMode())`, set `d.Dir = dockerDir`, require runtime via `d.Require()`
 - Resolve instance (canonical workdir, iid, container name, volume name)
 - Ensure host cursor dir exists (`ensureCursorConfigDir()` creates it if missing)
@@ -174,7 +175,7 @@ Main behavior (`newUpCmd()` in `internal/aishell/cli.go`):
   - checks `command -v cursor-agent`
   - if missing: runs `curl https://cursor.com/install -fsSL | bash`
   - appends `~/.local/bin` to `~/.bashrc` (best-effort)
-- Run `/docker/setup-git-ssh.sh`:
+- Run `/work/.ai-shell/setup-git-ssh.sh`:
   - **If an env file was injected**: “fail fast” (errors if ssh setup fails) with redacted, truncated output
   - **If no env file**:
     - if `gh auth status` fails: print next steps; continue (container is still usable)
@@ -260,22 +261,22 @@ Destructive cleanup:
 
 ## Container image + bootstrap script
 
-### `docker/Dockerfile`
+### `.ai-shell/Dockerfile`
 
-Base: `python:3.12-slim` (Python retained for general scripting convenience).
+The Dockerfile is minimal - it just sets up the base image and working directory. Scripts are accessed from the mounted workdir at `/work/.ai-shell/`.
 
-Installs common tools including:
-
-- `bash`, `ca-certificates`, `curl`, `git`, `jq`, `ripgrep`, `gh`
-- networking/debug: `iputils-ping`, `dnsutils`, `netcat-traditional`, `procps`, `gnupg`
-
-Note: Node.js/npm are **not required by `ai-shell`** and are **not installed by default**. If a specific tool/installer (including a future `cursor-agent` installer) requires node, install it manually inside the container.
-
-Copies `docker/setup-git-ssh.sh` to `/docker/setup-git-ssh.sh` and makes it executable.
+Default base: `ubuntu:24.04` (configurable via `--base-image` or config).
 
 Important: **`cursor-agent` is intentionally NOT installed at image build time** because `/root` is a named volume; installing after container creation ensures it persists in the `/root` volume.
 
-### `/docker/setup-git-ssh.sh`
+### `.ai-shell/bootstrap-tools.sh` / `.ai-shell/bootstrap-tools.py`
+
+Installs common tools at runtime:
+- `bash`, `ca-certificates`, `curl`, `git`, `gh`, `ssh`
+
+Supports multiple package managers: apt, dnf, yum, zypper, pacman, apk.
+
+### `/work/.ai-shell/setup-git-ssh.sh`
 
 Bootstrap GitHub SSH auth inside the container:
 
@@ -289,24 +290,22 @@ Bootstrap GitHub SSH auth inside the container:
 
 ## Packaging / asset discovery
 
-`resolveHome()` in `internal/aishell/cli.go` finds the Docker build context:
+Scripts are embedded in the `ai-shell` binary via Go's `//go:embed` directive (see `internal/aishell/scripts/`).
 
-Priority:
+`ai-shell setup` creates global config (`~/.config/ai-shell/config.toml` and `.env`).
 
-1. `--home`
-2. `AI_SHELL_HOME`
-3. current directory if it contains `docker/Dockerfile` (or `Dockerfile`)
-4. executable directory if it contains `docker/Dockerfile` (or `Dockerfile`)
-5. install share dir(s):
-   - `$XDG_DATA_HOME/ai-shell`
-   - `~/.local/share/ai-shell`
-   - `/usr/local/share/ai-shell`
-   - `/usr/share/ai-shell`
+`ai-shell init` scaffolds `.ai-shell/` in the workdir with:
+- `Dockerfile`
+- `docker-compose.yml`
+- `bootstrap-tools.sh`, `bootstrap-tools.py`
+- `setup-git-ssh.sh`
+- `README.md`
+
+`ai-shell up` requires `.ai-shell/` to exist and uses it as the Docker build context.
 
 `make install` installs:
 
-- binary: `$(PREFIX)/bin/ai-shell`
-- assets: `$(PREFIX)/share/ai-shell/docker/*`
+- binary: `$(PREFIX)/bin/ai-shell` (single binary, no external assets needed)
 
 ## Known risk areas / sharp edges
 

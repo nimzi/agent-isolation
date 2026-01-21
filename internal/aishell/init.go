@@ -14,7 +14,8 @@ import (
 	"golang.org/x/term"
 )
 
-type initOptions struct {
+// setupOptions for the global 'setup' command (one-time per machine)
+type setupOptions struct {
 	Yes         bool
 	Force       bool
 	Mode        string
@@ -23,6 +24,14 @@ type initOptions struct {
 	GHTokenCmd  string
 	SkipGHToken bool
 	Interactive bool
+}
+
+// initOptions for the per-project 'init' command
+type initOptions struct {
+	Force        bool
+	Workdir      string
+	BaseImage    string
+	CursorConfig string
 }
 
 func getHostGHToken(cmd string) (string, error) {
@@ -211,7 +220,7 @@ func promptLine(reader *bufio.Reader, prompt string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-func initInteractive(reader *bufio.Reader, mode string, configDir string, envPath string, ghTokenCmd string, skipGHToken bool) (resolvedMode string, resolvedConfigPath string, resolvedEnvPath string, resolvedEnvToken string, wroteToken bool, err error) {
+func setupInteractive(reader *bufio.Reader, mode string, configDir string, envPath string, ghTokenCmd string, skipGHToken bool) (resolvedMode string, resolvedConfigPath string, resolvedEnvPath string, resolvedEnvToken string, wroteToken bool, err error) {
 	// config dir prompt (default getConfigDir())
 	if strings.TrimSpace(configDir) == "" {
 		def := getConfigDir()
@@ -329,7 +338,7 @@ func initInteractive(reader *bufio.Reader, mode string, configDir string, envPat
 	}
 }
 
-func runInit(opts initOptions) error {
+func runSetup(opts setupOptions) error {
 	interactive := opts.Interactive
 	if opts.Yes {
 		interactive = false
@@ -357,7 +366,7 @@ func runInit(opts initOptions) error {
 
 	if interactive {
 		reader := bufio.NewReader(os.Stdin)
-		resolvedMode, resolvedConfigPath, resolvedEnvPath, tok, set, err := initInteractive(reader, mode, opts.ConfigDir, opts.EnvPath, ghCmd, opts.SkipGHToken)
+		resolvedMode, resolvedConfigPath, resolvedEnvPath, tok, set, err := setupInteractive(reader, mode, opts.ConfigDir, opts.EnvPath, ghCmd, opts.SkipGHToken)
 		if err != nil {
 			return err
 		}
@@ -397,10 +406,59 @@ func runInit(opts initOptions) error {
 	// If we attempted to set token but ended up empty, wroteToken will be false.
 	_ = tokenSet
 
-	fmt.Fprintf(os.Stderr, "OK: initialized ai-shell\n")
+	fmt.Fprintf(os.Stderr, "OK: initialized global ai-shell config\n")
 	fmt.Fprintf(os.Stderr, "config: %s\n", configPath)
 	fmt.Fprintf(os.Stderr, "env:    %s\n", envPath)
 	fmt.Fprintf(os.Stderr, "mode:   %s\n", mode)
 	fmt.Fprintf(os.Stderr, "GH_TOKEN set: %t\n", wroteToken)
+	fmt.Fprintf(os.Stderr, "\nNext: run 'ai-shell init' in your project directory to scaffold .ai-shell/\n")
+
+	return nil
+}
+
+func runInit(opts initOptions) error {
+	// Read existing config to get default base image
+	cfg, err := readConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	workdir, err := CanonicalWorkdir(opts.Workdir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve workdir: %w", err)
+	}
+
+	aiShellDir := filepath.Join(workdir, ".ai-shell")
+
+	// Resolve cursor config directory
+	cursorConfig := opts.CursorConfig
+	if cursorConfig == "" {
+		cursorConfig = "~/.config/cursor"
+	}
+	cursorDir, err := ensureCursorConfigDir(cursorConfig)
+	if err != nil {
+		return fmt.Errorf("failed to resolve cursor config: %w", err)
+	}
+
+	// Resolve base image
+	baseImage := opts.BaseImage
+	if baseImage == "" {
+		baseImage = cfg.DefaultBaseImage
+	}
+	if baseImage == "" {
+		baseImage = "ubuntu:24.04"
+	}
+
+	// Use exportFiles to scaffold .ai-shell/
+	cliCfg := &Config{Workdir: workdir}
+	if err := exportFiles(aiShellDir, workdir, cliCfg, baseImage, cursorDir, opts.Force); err != nil {
+		return fmt.Errorf("failed to scaffold .ai-shell/: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "OK: initialized workdir .ai-shell/\n")
+	fmt.Fprintf(os.Stderr, "workdir: %s\n", workdir)
+	fmt.Fprintf(os.Stderr, ".ai-shell: %s\n", aiShellDir)
+	fmt.Fprintf(os.Stderr, "\nNext: run 'ai-shell up' to build and start the container\n")
+
 	return nil
 }

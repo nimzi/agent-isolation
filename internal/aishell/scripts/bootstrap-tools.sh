@@ -55,5 +55,5 @@ if ! have python3; then
   esac
 fi
 
-exec python3 /docker/bootstrap-tools.py "$@"
+exec python3 /work/.ai-shell/bootstrap-tools.py "$@"
 

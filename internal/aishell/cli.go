@@ -17,7 +17,6 @@ import (
 
 type Config struct {
 	Workdir       string
-	Home          string
 	ContainerBase string
 	Image         string
 	VolumeBase    string
@@ -44,8 +43,11 @@ Manage per-workdir ai-shell Docker/Podman containers.
 
 Workdir is the identity: one container + one /root volume per workdir.
 
-Containerization mode (docker or podman) must be configured before first use:
-  ai-shell config set-mode <docker|podman>
+First-time setup (one-time per machine):
+  ai-shell setup
+
+Per-project initialization:
+  ai-shell init
 
 Image builds use a configurable base image (Dockerfile FROM). Configure defaults and aliases:
   ai-shell config set-default-base-image <image|alias>
@@ -63,7 +65,7 @@ Defaults can be overridden via env vars:
 			// Check if this is a config subcommand by walking up the command tree
 			current := cmd
 			for current != nil {
-				if current.Use == "config" || current.Use == "init" {
+				if current.Use == "config" || current.Use == "setup" || current.Use == "init" {
 					return nil
 				}
 				current = current.Parent()
@@ -75,7 +77,6 @@ Defaults can be overridden via env vars:
 	}
 
 	root.PersistentFlags().StringVar(&cfg.Workdir, "workdir", "", "Target workdir (default: current directory)")
-	root.PersistentFlags().StringVar(&cfg.Home, "home", "", "Repo/build context home used to find docker/Dockerfile (or set AI_SHELL_HOME)")
 	root.PersistentFlags().StringVar(&cfg.ContainerBase, "container-base", "", "Container base name (overrides AI_SHELL_CONTAINER)")
 	root.PersistentFlags().StringVar(&cfg.Image, "image", "", "Image name (overrides AI_SHELL_IMAGE)")
 	root.PersistentFlags().StringVar(&cfg.VolumeBase, "volume-base", "", "Volume base name for /root (overrides AI_SHELL_VOLUME)")
@@ -91,8 +92,8 @@ Defaults can be overridden via env vars:
 	root.AddCommand(newLsCmd(cfg))
 	root.AddCommand(newRmCmd(cfg))
 	root.AddCommand(newConfigCmd())
+	root.AddCommand(newSetupCmd())
 	root.AddCommand(newInitCmd())
-	root.AddCommand(newEjectCmd(cfg))
 
 	return root
 }
@@ -125,72 +126,6 @@ func resolveInstance(cfg *Config) (workdir, instanceID, container, image, volume
 	return wd, InstanceID(wd), containerName, imageName, volumeName, nil
 }
 
-func resolveHome(cfg *Config) (string, error) {
-	// Priority: flag > env > cwd if (docker/)Dockerfile present > executable dir if (docker/)Dockerfile present > install share dir
-	if strings.TrimSpace(cfg.Home) != "" {
-		return filepath.Abs(expandUser(cfg.Home))
-	}
-	if env := strings.TrimSpace(os.Getenv("AI_SHELL_HOME")); env != "" {
-		return filepath.Abs(expandUser(env))
-	}
-
-	hasDockerfile := func(home string) bool {
-		if _, err := os.Stat(filepath.Join(home, "docker", "Dockerfile")); err == nil {
-			return true
-		}
-		if _, err := os.Stat(filepath.Join(home, "Dockerfile")); err == nil {
-			return true
-		}
-		return false
-	}
-
-	if wd, err := os.Getwd(); err == nil {
-		if abs, err := filepath.Abs(wd); err == nil && hasDockerfile(abs) {
-			return abs, nil
-		}
-	}
-	if exe, err := os.Executable(); err == nil {
-		if dir, err := filepath.Abs(filepath.Dir(exe)); err == nil && hasDockerfile(dir) {
-			return dir, nil
-		}
-	}
-
-	// Default locations for installed Docker build assets.
-	// These are populated by `make install` into $(PREFIX)/share/ai-shell.
-	if xdg := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); xdg != "" {
-		if home := filepath.Join(expandUser(xdg), "ai-shell"); hasDockerfile(home) {
-			return home, nil
-		}
-	}
-	if homeEnv := strings.TrimSpace(os.Getenv("HOME")); homeEnv != "" {
-		if home := filepath.Join(expandUser(homeEnv), ".local", "share", "ai-shell"); hasDockerfile(home) {
-			return home, nil
-		}
-	}
-	for _, home := range []string{
-		"/usr/local/share/ai-shell",
-		"/usr/share/ai-shell",
-	} {
-		if hasDockerfile(home) {
-			return home, nil
-		}
-	}
-
-	return "", errors.New("cannot locate Docker build context; set --home / AI_SHELL_HOME or install assets to /usr/local/share/ai-shell (or ~/.local/share/ai-shell)")
-}
-
-func resolveDockerDir(home string) (string, error) {
-	d := filepath.Join(home, "docker")
-	if _, err := os.Stat(filepath.Join(d, "Dockerfile")); err == nil {
-		return d, nil
-	}
-	// also accept home itself if Dockerfile is there (older layout)
-	if _, err := os.Stat(filepath.Join(home, "Dockerfile")); err == nil {
-		return home, nil
-	}
-	return "", fmt.Errorf("cannot locate Dockerfile under %s (expected %s)", home, filepath.Join(home, "docker", "Dockerfile"))
-}
-
 func ensureCursorConfigDir(p string) (string, error) {
 	p = expandUser(p)
 	abs, err := filepath.Abs(p)
@@ -218,21 +153,7 @@ func requireManaged(d Docker, container string, expectedWorkdir string) error {
 	return nil
 }
 
-// isEjected returns true if the workdir has been ejected (has .ai-shell/ directory).
-func isEjected(workdir string) bool {
-	info, err := os.Stat(filepath.Join(workdir, ".ai-shell"))
-	return err == nil && info.IsDir()
-}
-
-// warnIfEjected prints a warning to stderr if the workdir is ejected.
-func warnIfEjected(workdir string) {
-	if isEjected(workdir) {
-		warnf("Warning: this workspace has been ejected (.ai-shell/ exists).\n")
-		warnf("Consider using 'docker compose' commands from .ai-shell/ instead.\n\n")
-	}
-}
-
-// runComposeUp runs docker compose commands for an ejected workspace.
+// runComposeUp runs docker compose commands for a workspace.
 // It prints each command before running it.
 func runComposeUp(runtime, composeDir string) error {
 	fmt.Println("Ejected workspace detected. Running docker compose commands...")
@@ -295,8 +216,8 @@ func runComposeUp(runtime, composeDir string) error {
 
 	fmt.Println()
 
-	// Run: docker compose exec ai-shell /docker/bootstrap-tools.sh
-	if err := runCompose("exec", "ai-shell", "/docker/bootstrap-tools.sh"); err != nil {
+	// Run: docker compose exec ai-shell sh /work/.ai-shell/bootstrap-tools.sh
+	if err := runCompose("exec", "ai-shell", "sh", "/work/.ai-shell/bootstrap-tools.sh"); err != nil {
 		return fmt.Errorf("bootstrap-tools failed: %w", err)
 	}
 
@@ -321,15 +242,15 @@ func runComposeUp(runtime, composeDir string) error {
 Next steps:
   - docker compose exec ai-shell bash
   - gh auth login
-  - /docker/setup-git-ssh.sh
+  - bash /work/.ai-shell/setup-git-ssh.sh
 
 `)
 			} else {
 				// gh is authenticated; run SSH setup
 				fmt.Println("Running SSH setup...")
-				if err := runCompose("exec", "ai-shell", "/docker/setup-git-ssh.sh"); err != nil {
+				if err := runCompose("exec", "ai-shell", "sh", "/work/.ai-shell/setup-git-ssh.sh"); err != nil {
 					warnf("Warning: SSH setup failed (container is still usable).\n")
-					warnf("You can retry manually: docker compose exec ai-shell /docker/setup-git-ssh.sh\n\n")
+					warnf("You can retry manually: docker compose exec ai-shell bash /work/.ai-shell/setup-git-ssh.sh\n\n")
 				}
 			}
 		}
@@ -390,10 +311,11 @@ func bootstrapTools(d Docker, container string) error {
 	dLong.Timeout = 15 * time.Minute
 
 	// Stream output so the user can see progress; allocate a TTY when possible for color.
+	// Scripts are accessed from the mounted workdir at /work/.ai-shell/
 	if isTTY() {
-		return dLong.ExecTty(container, "/docker/bootstrap-tools.sh")
+		return dLong.ExecTty(container, "sh", "/work/.ai-shell/bootstrap-tools.sh")
 	}
-	return dLong.Exec(container, "/docker/bootstrap-tools.sh")
+	return dLong.Exec(container, "sh", "/work/.ai-shell/bootstrap-tools.sh")
 }
 
 func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
@@ -417,51 +339,34 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 		Short: short,
 		Args:  cobra.MaximumNArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			home, err := resolveHome(cfg)
+			// Resolve workdir to check for .ai-shell/
+			workdir, err := CanonicalWorkdir(cfg.Workdir)
 			if err != nil {
 				return err
 			}
-			_, err = resolveDockerDir(home)
-			return err
+			aiShellDir := filepath.Join(workdir, ".ai-shell")
+			if _, err := os.Stat(filepath.Join(aiShellDir, "Dockerfile")); os.IsNotExist(err) {
+				return fmt.Errorf("no .ai-shell/ directory found in %s\n\nRun 'ai-shell init' first to create the configuration", workdir)
+			}
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home, err := resolveHome(cfg)
-			if err != nil {
-				return err
-			}
-			dockerDir, err := resolveDockerDir(home)
-			if err != nil {
-				return err
-			}
-			runtime, err := NewDocker(getRuntimeMode())
-			if err != nil {
-				return err
-			}
-			runtime.Dir = dockerDir
-			d := runtime
-			if err := d.Require(); err != nil {
-				return err
-			}
-
 			workdir, iid, container, image, volume, err := resolveInstance(cfg)
 			if err != nil {
 				return err
 			}
 
-			// Block recreate for ejected workspaces
-			if aliasRecreate && isEjected(workdir) {
-				return fmt.Errorf("refusing to recreate: workspace is ejected (.ai-shell/ exists)\nDelete .ai-shell/ directory to use ai-shell recreate, or use 'docker compose' from .ai-shell/")
-			}
+			// Build context is .ai-shell/ in the workdir
+			aiShellDir := filepath.Join(workdir, ".ai-shell")
 
-			// Handle ejected workspaces
-			if isEjected(workdir) {
-				if !d.ContainerExists(container) {
-					// No container yet - delegate to compose
-					composeDir := filepath.Join(workdir, ".ai-shell")
-					return runComposeUp(d.Runtime, composeDir)
-				}
-				// Container exists - just warn and continue
-				warnIfEjected(workdir)
+			runtime, err := NewDocker(getRuntimeMode())
+			if err != nil {
+				return err
+			}
+			runtime.Dir = aiShellDir
+			d := runtime
+			if err := d.Require(); err != nil {
+				return err
 			}
 
 			cursorDir, err := ensureCursorConfigDir(cursorConfig)
@@ -528,23 +433,23 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 					}
 				}
 
-				// SSH setup (writes keys into /root persistent volume).
-				// If an env file was provided/found, keep "fail fast" behavior.
-				if len(envRes.Args) > 0 {
-					dLong := d
-					dLong.Timeout = 15 * time.Minute
-					out, err := dLong.ExecCapture(container, "/docker/setup-git-ssh.sh")
-					if err != nil {
-						out = redactSecrets(out)
-						out = strings.TrimSpace(out)
-						const maxOut = 4000
-						if len(out) > maxOut {
-							out = out[:maxOut] + "\n...(truncated)"
-						}
-						msg := strings.TrimSpace(fmt.Sprintf(`
+			// SSH setup (writes keys into /root persistent volume).
+			// If an env file was provided/found, keep "fail fast" behavior.
+			if len(envRes.Args) > 0 {
+				dLong := d
+				dLong.Timeout = 15 * time.Minute
+				out, err := dLong.ExecCapture(container, "bash /work/.ai-shell/setup-git-ssh.sh")
+				if err != nil {
+					out = redactSecrets(out)
+					out = strings.TrimSpace(out)
+					const maxOut = 4000
+					if len(out) > maxOut {
+						out = out[:maxOut] + "\n...(truncated)"
+					}
+					msg := strings.TrimSpace(fmt.Sprintf(`
 SSH setup failed inside the container.
 
-ai-shell requires SSH for git operations and runs /docker/setup-git-ssh.sh to bootstrap GitHub SSH access.
+ai-shell requires SSH for git operations and runs setup-git-ssh.sh to bootstrap GitHub SSH access.
 
 This script requires GitHub CLI authentication.
 
@@ -562,15 +467,15 @@ If you want to clean up the failed instance:
   - ai-shell rm --volume   (remove container + /root volume for this workdir)
   - ai-shell rm --nuke     (remove ALL ai-shell containers/volumes/images)
 
-Output from /docker/setup-git-ssh.sh:
+Output from setup-git-ssh.sh:
 %s
 `, out))
-						return errors.New(msg)
-					}
-				} else {
-					// No env file: only attempt SSH setup if gh is already authenticated in the persistent /root volume.
-					if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
-						warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so SSH setup was skipped.
+					return errors.New(msg)
+				}
+			} else {
+				// No env file: only attempt SSH setup if gh is already authenticated in the persistent /root volume.
+				if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
+					warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so SSH setup was skipped.
 
 Next steps:
   - ai-shell enter            (or: ai-shell enter <short>)
@@ -579,32 +484,32 @@ Next steps:
 
 Then finish SSH setup:
   - re-run: ai-shell up            (it will attempt SSH setup if gh auth status passes)
-  - or inside the container: /docker/setup-git-ssh.sh
+  - or inside the container: bash /work/.ai-shell/setup-git-ssh.sh
 
 `)
-					} else {
-						// Auth already exists (likely from a prior interactive login); proceed with SSH bootstrap.
-						dLong := d
-						dLong.Timeout = 15 * time.Minute
-						if out, err := dLong.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
-							out = redactSecrets(out)
-							out = strings.TrimSpace(out)
-							const maxOut = 4000
-							if len(out) > maxOut {
-								out = out[:maxOut] + "\n...(truncated)"
-							}
-							msg := strings.TrimSpace(fmt.Sprintf(`
+				} else {
+					// Auth already exists (likely from a prior interactive login); proceed with SSH bootstrap.
+					dLong := d
+					dLong.Timeout = 15 * time.Minute
+					if out, err := dLong.ExecCapture(container, "bash /work/.ai-shell/setup-git-ssh.sh"); err != nil {
+						out = redactSecrets(out)
+						out = strings.TrimSpace(out)
+						const maxOut = 4000
+						if len(out) > maxOut {
+							out = out[:maxOut] + "\n...(truncated)"
+						}
+						msg := strings.TrimSpace(fmt.Sprintf(`
 SSH setup failed inside the container (unexpected).
 
-gh appears to be authenticated, but /docker/setup-git-ssh.sh still failed.
+gh appears to be authenticated, but setup-git-ssh.sh still failed.
 
-Output from /docker/setup-git-ssh.sh:
+Output from setup-git-ssh.sh:
 %s
 `, out))
-							return errors.New(msg)
-						}
+						return errors.New(msg)
 					}
 				}
+			}
 			} else {
 				if err := requireManaged(d, container, workdir); err != nil {
 					return err
@@ -619,11 +524,11 @@ Output from /docker/setup-git-ssh.sh:
 					return fmt.Errorf("bootstrap tools: %w", err)
 				}
 
-				// If SSH setup was previously skipped, try again once gh auth exists.
-				needsSSH, err := d.ExecCapture(container, `test -f "$HOME/.ssh/id_ed25519" && git config --global --get url."git@github.com:".insteadOf "https://github.com/" >/dev/null 2>&1 && echo OK`)
-				if err != nil || !strings.Contains(needsSSH, "OK") {
-					if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
-						warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so GitHub SSH setup has not been completed.
+			// If SSH setup was previously skipped, try again once gh auth exists.
+			needsSSH, err := d.ExecCapture(container, `test -f "$HOME/.ssh/id_ed25519" && git config --global --get url."git@github.com:".insteadOf "https://github.com/" >/dev/null 2>&1 && echo OK`)
+			if err != nil || !strings.Contains(needsSSH, "OK") {
+				if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
+					warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so GitHub SSH setup has not been completed.
 
 Next steps:
   - ai-shell enter
@@ -631,30 +536,30 @@ Next steps:
   - gh auth status
 
 Then run:
-  - /docker/setup-git-ssh.sh
+  - bash /work/.ai-shell/setup-git-ssh.sh
   - or just re-run: ai-shell up
 
 `)
-					} else {
-						dLong := d
-						dLong.Timeout = 15 * time.Minute
-						if out, err := dLong.ExecCapture(container, "/docker/setup-git-ssh.sh"); err != nil {
-							out = redactSecrets(out)
-							out = strings.TrimSpace(out)
-							const maxOut = 4000
-							if len(out) > maxOut {
-								out = out[:maxOut] + "\n...(truncated)"
-							}
-							msg := strings.TrimSpace(fmt.Sprintf(`
+				} else {
+					dLong := d
+					dLong.Timeout = 15 * time.Minute
+					if out, err := dLong.ExecCapture(container, "bash /work/.ai-shell/setup-git-ssh.sh"); err != nil {
+						out = redactSecrets(out)
+						out = strings.TrimSpace(out)
+						const maxOut = 4000
+						if len(out) > maxOut {
+							out = out[:maxOut] + "\n...(truncated)"
+						}
+						msg := strings.TrimSpace(fmt.Sprintf(`
 SSH setup failed inside the container.
 
-Output from /docker/setup-git-ssh.sh:
+Output from setup-git-ssh.sh:
 %s
 `, out))
-							return errors.New(msg)
-						}
+						return errors.New(msg)
 					}
 				}
+			}
 			}
 
 			if !noInstall {
@@ -708,7 +613,6 @@ func newStartCmd(cfg *Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				warnIfEjected(workdir)
 				if !d.ContainerExists(container) {
 					return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
 				}
@@ -756,7 +660,6 @@ func newStopCmd(cfg *Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				warnIfEjected(workdir)
 				if !d.ContainerExists(container) {
 					return fmt.Errorf("container not found for workdir: %s", workdir)
 				}
@@ -812,7 +715,6 @@ func newStatusCmd(cfg *Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				warnIfEjected(workdir)
 				exists := d.ContainerExists(container)
 				running := exists && d.ContainerRunning(container)
 				fmt.Printf("workdir:   %s\n", workdir)
@@ -873,7 +775,6 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				warnIfEjected(workdir)
 				if !d.ContainerExists(container) {
 					return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
 				}
@@ -933,7 +834,6 @@ func newCheckCmd(cfg *Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				warnIfEjected(workdir)
 				if !d.ContainerExists(container) {
 					return fmt.Errorf("container not found for workdir: %s (run: ai-shell up)", workdir)
 				}
@@ -1241,7 +1141,6 @@ func newRmCmd(cfg *Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnIfEjected(workdir)
 			if !d.ContainerExists(container) {
 				fmt.Printf("OK: no container for workdir: %s\n", workdir)
 				return nil
@@ -1448,7 +1347,7 @@ func newConfigCmd() *cobra.Command {
 	return cmd
 }
 
-func newInitCmd() *cobra.Command {
+func newSetupCmd() *cobra.Command {
 	var yes bool
 	var force bool
 	var mode string
@@ -1458,10 +1357,20 @@ func newInitCmd() *cobra.Command {
 	var skipGHToken bool
 
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Initialize ai-shell config and global env (.env)",
+		Use:   "setup",
+		Short: "One-time global setup: create config and env files",
+		Long: strings.TrimSpace(`
+One-time global setup for ai-shell.
+
+This command creates:
+1. Global config (~/.config/ai-shell/config.toml) with mode (docker/podman)
+2. Global env file (~/.config/ai-shell/.env) for GH_TOKEN
+
+Run this once per machine. Then use 'ai-shell init' in each project
+to scaffold the per-project .ai-shell/ directory.
+`),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(initOptions{
+			return runSetup(setupOptions{
 				Yes:         yes,
 				Force:       force,
 				Mode:        mode,
@@ -1485,83 +1394,49 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
-func newEjectCmd(cfg *Config) *cobra.Command {
-	var outputDir string
+func newInitCmd() *cobra.Command {
+	var force bool
+	var workdir string
 	var baseImage string
 	var cursorConfig string
-	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "eject [--output DIR] [--base-image IMAGE] [--force]",
-		Short: "Export Docker Compose configuration for this workdir",
+		Use:   "init",
+		Short: "Initialize .ai-shell/ directory for this project",
 		Long: strings.TrimSpace(`
-Export a standalone Docker Compose configuration for this workdir.
+Initialize per-project .ai-shell/ directory.
 
-This creates a .ai-shell/ directory (or custom --output) containing:
-  - Dockerfile (with resolved base image)
-  - docker-compose.yml (with correct names, labels, mounts)
-  - Helper scripts: bootstrap-tools.sh, bootstrap-tools.py, setup-git-ssh.sh
-  - README.md explaining usage
+This command scaffolds .ai-shell/ in the workdir with:
+- Dockerfile
+- docker-compose.yml
+- bootstrap-tools.sh, bootstrap-tools.py
+- setup-git-ssh.sh
+- README.md
 
-The generated files work with both docker compose and podman-compose.
+Prerequisites:
+- Run 'ai-shell setup' first to create global config (one-time per machine)
 
-The ai-shell CLI commands (status, enter, etc.) will continue to work
-with containers created from the ejected configuration.
+After init, run 'ai-shell up' to build and start the container.
 `),
-		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Resolve workdir
-			workdir, err := CanonicalWorkdir(cfg.Workdir)
-			if err != nil {
-				return err
+			// Check that global config exists
+			if _, err := readConfig(); err != nil {
+				return fmt.Errorf("global config not found. Run 'ai-shell setup' first.\n\nError: %w", err)
 			}
 
-			// Determine output directory
-			outDir := outputDir
-			if outDir == "" {
-				outDir = filepath.Join(workdir, ".ai-shell")
-			} else {
-				outDir = expandUser(outDir)
-				if !filepath.IsAbs(outDir) {
-					outDir = filepath.Join(workdir, outDir)
-				}
-			}
-
-			// Resolve cursor config directory
-			cursorDir, err := ensureCursorConfigDir(cursorConfig)
-			if err != nil {
-				return err
-			}
-
-			// Resolve base image
-			appCfg, err := readConfig()
-			if err != nil {
-				return err
-			}
-			base, _, _, err := chooseBaseImage(baseImage, nil, appCfg)
-			if err != nil {
-				return err
-			}
-
-			// Export files
-			if err := exportFiles(outDir, workdir, cfg, base, cursorDir, force); err != nil {
-				return err
-			}
-
-			fmt.Printf("OK: ejected to %s\n", outDir)
-			fmt.Println()
-			fmt.Println("Usage:")
-			fmt.Printf("  cd %s\n", outDir)
-			fmt.Println("  docker compose up -d --build")
-			fmt.Println("  docker compose exec ai-shell bash")
-			return nil
+			return runInit(initOptions{
+				Force:        force,
+				Workdir:      workdir,
+				BaseImage:    baseImage,
+				CursorConfig: cursorConfig,
+			})
 		},
 	}
 
-	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: .ai-shell/ in workdir)")
-	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (default: configured default)")
-	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files")
+	cmd.Flags().StringVar(&workdir, "workdir", "", "Target workdir (default: current directory)")
+	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (default: from config or ubuntu:24.04)")
+	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
 
 	return cmd
 }

@@ -132,7 +132,7 @@ func formatEnvMissingWarning(defaultPath string) string {
 Warning: no env file was provided/found, so gh may not be authenticated non-interactively.
 
 Why this matters:
-  - ai-shell uses gh to do first-run GitHub SSH setup (/docker/setup-git-ssh.sh).
+  - ai-shell uses gh to do first-run GitHub SSH setup (setup-git-ssh.sh).
   - Without a token, you can still use the container, but SSH bootstrap may be deferred.
 
 Authenticate interactively (recommended if you don't want to store a token):
@@ -150,7 +150,7 @@ Create a global env file (optional, for non-interactive runs):
 
 Finish SSH setup after authenticating:
   - re-run: ai-shell up            (it will attempt SSH setup if gh auth status passes)
-  - or inside the container: /docker/setup-git-ssh.sh
+  - or inside the container: bash /work/.ai-shell/setup-git-ssh.sh
 `, defaultPath))
 }
 

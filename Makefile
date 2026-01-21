@@ -22,12 +22,8 @@ tidy:
 install:
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	$(GO) build -o "$(DESTDIR)$(PREFIX)/bin/$(BIN_NAME)" $(PKG)
-	install -d "$(DESTDIR)$(PREFIX)/share/ai-shell"
-	rm -rf "$(DESTDIR)$(PREFIX)/share/ai-shell/docker"
-	cp -a docker "$(DESTDIR)$(PREFIX)/share/ai-shell/"
 
 .PHONY: uninstall
 uninstall:
 	rm -f "$(DESTDIR)$(PREFIX)/bin/$(BIN_NAME)"
-	rm -rf "$(DESTDIR)$(PREFIX)/share/ai-shell"
 

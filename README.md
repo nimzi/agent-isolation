@@ -6,8 +6,9 @@ Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/r
 
 - **Agent CLI(s)**: installed into the persistent `/root` volume so they survive rebuilds
 - **Host Cursor auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) into the container
-- **Dev tools**: `git`, `gh`, `curl`, etc. (installed at runtime via `/docker/bootstrap-tools.sh`)
+- **Dev tools**: `git`, `gh`, `curl`, etc. (installed at runtime via `.ai-shell/bootstrap-tools.sh`)
 - **Persistent state**: `/root` is a named Docker volume; `/work` is your bind-mounted project directory
+- **Per-project customization**: each project gets its own `.ai-shell/` directory with Dockerfile and scripts
 
 ## Setup
 
@@ -79,7 +80,7 @@ gh api user --jq .login
 
 ### Git SSH setup (default; runs on first container creation)
 
-On the **first** `ai-shell up` (when the container is created), `ai-shell` runs `/docker/setup-git-ssh.sh` inside the container.
+On the **first** `ai-shell up` (when the container is created), `ai-shell` runs `.ai-shell/setup-git-ssh.sh` inside the container.
 
 - It generates `~/.ssh/id_ed25519` inside the container (stored in the persistent `/root` volume).
 - It adds the public key to your GitHub account via `gh ssh-key add`.
@@ -110,16 +111,18 @@ Notes:
 
 ### Configure runtime mode (required)
 
-Before first use, configure the container runtime:
+Before first use, run the one-time global setup:
+
+```bash
+ai-shell setup
+```
+
+This creates global config (`~/.config/ai-shell/config.toml`) and env file (`~/.config/ai-shell/.env`).
+
+Alternatively, configure the container runtime manually:
 
 ```bash
 ai-shell config set-mode <docker|podman>
-```
-
-Alternatively, run the guided initializer:
-
-```bash
-ai-shell init
 ```
 
 Optional (but recommended): set a default base image and define aliases:
@@ -144,9 +147,6 @@ User install:
 make install PREFIX="$HOME/.local"
 ```
 
-After `make install` (systemwide or `PREFIX="$HOME/.local"`), `ai-shell` installs its Docker build context (for example `docker/Dockerfile` and the helper scripts) under `$(PREFIX)/share/ai-shell`.
-The installed `ai-shell` binary will usually find these assets automatically, so you normally run `ai-shell up` **without** `--home`.
-Use `--home` / `AI_SHELL_HOME` only when running from a source checkout (or another non-standard layout) where `ai-shell` can’t auto-discover the build context.
 
 ### Dev
 
@@ -157,15 +157,31 @@ make build
 
 ### Run
 
-**First time setup (builds image, creates container, installs cursor-agent):**
+**First time setup (one-time per machine):**
+```bash
+ai-shell setup
+```
+
+This creates:
+- Global config (`~/.config/ai-shell/config.toml`) with mode (docker/podman)
+- Global env file (`~/.config/ai-shell/.env`) for `GH_TOKEN`
+
+**Initialize a project (per-project):**
+```bash
+ai-shell init
+```
+
+This creates:
+- Per-project `.ai-shell/` directory with Dockerfile, scripts, and docker-compose.yml
+
+**Build and start the container:**
 ```bash
 ai-shell up
 ```
 
-If you’re running from the repo without installing (for example `./bin/ai-shell` or `go run ./cmd/ai-shell`), pass `--home "$(pwd)"` (or set `AI_SHELL_HOME="$(pwd)"`) so `ai-shell` can find `docker/Dockerfile`.
 
 This script will:
-- Build the Docker image
+- Build the Docker image from `.ai-shell/Dockerfile`
 - Create a container (optionally using a global env file if present)
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
@@ -174,7 +190,7 @@ This script will:
 
 ### Base image selection (Dockerfile FROM)
 
-`ai-shell` builds its image from `docker/Dockerfile`. The Dockerfile requires a base image (the `FROM` image) via build-arg `BASE_IMAGE`.
+`ai-shell` builds its image from `.ai-shell/Dockerfile`. The Dockerfile requires a base image (the `FROM` image) via build-arg `BASE_IMAGE`.
 
 You can provide a base image for `up`/`recreate` either by flag or as an optional positional arg (and it may be an alias):
 
@@ -187,7 +203,6 @@ ai-shell config alias set ubuntu24 ubuntu:24.04
 ai-shell up ubuntu24
 ```
 
-From a source checkout (no `make install`), add `--home "$(pwd)"` so `ai-shell` can find `docker/Dockerfile`.
 
 Note: changing the base image affects builds. Existing containers need `--recreate` to pick up the new image.
 
@@ -282,67 +297,33 @@ ai-shell rm --nuke --yes
 - Provides clear error messages if the container doesn't exist or operations fail
 - Respects the `AI_SHELL_CONTAINER` environment variable for custom container names
 
-**Note:** If the container doesn't exist, run `ai-shell up` first to create it. (When running from a source checkout without installation, add `--home` / `AI_SHELL_HOME`.)
+**Note:** If the container doesn't exist, run `ai-shell setup` (once per machine), then `ai-shell init` (per project), then `ai-shell up` to create it.
 
-### Ejecting to Docker Compose
+### Customizing the Container
 
-The `eject` command exports a standalone Docker Compose configuration:
+Each project has its own `.ai-shell/` directory (created by `ai-shell init`) containing:
+- `Dockerfile` - modify to change base image, add packages, etc.
+- `docker-compose.yml` - add volume mounts, environment variables, services
+- `bootstrap-tools.sh` / `bootstrap-tools.py` - modify which packages are installed
+- `setup-git-ssh.sh` - customize SSH/git setup
 
-```bash
-ai-shell eject
-```
+You can commit `.ai-shell/` to version control so team members get the same container setup.
 
-This creates a `.ai-shell/` directory containing:
-- `Dockerfile` (with resolved base image)
-- `docker-compose.yml` (with correct container names, labels, mounts)
-- Helper scripts (`bootstrap-tools.sh`, `bootstrap-tools.py`, `setup-git-ssh.sh`)
-- `README.md` with usage instructions
-
-**When to use eject:**
-- You want to customize the Docker setup beyond what `ai-shell` flags provide
-- You prefer using `docker compose` commands directly
-- You want to commit the container configuration to your repo
-
-**Options:**
-- `--output DIR` / `-o DIR`: Custom output directory (default: `.ai-shell/`)
-- `--base-image IMAGE`: Override base image
-- `--force`: Overwrite existing files
-
-**After ejecting:**
-
-You can use either `docker compose` directly or continue using `ai-shell` commands:
+**Using Docker Compose directly:**
 
 ```bash
-# Using docker compose
 cd .ai-shell
 docker compose up -d --build
 docker compose exec ai-shell bash
-
-# Or using ai-shell (still works - detects .ai-shell/ directory)
-ai-shell up      # runs docker compose automatically
-ai-shell enter   # enters the container
-ai-shell status  # shows container status
 ```
 
-When `ai-shell up` detects an ejected workspace (`.ai-shell/` exists), it:
-1. Runs `docker compose up -d --build`
-2. Runs `/docker/bootstrap-tools.sh` to install dev tools
-3. Runs `/docker/setup-git-ssh.sh` if `gh` is authenticated (skips with warning otherwise)
+Or with podman-compose:
 
-**Note:** `ai-shell recreate` is blocked on ejected workspaces. Use `docker compose down && docker compose up -d --build` instead, or delete `.ai-shell/` to return to normal `ai-shell` management.
-
-### `--home` vs `--workdir` (important)
-
-- **`--workdir`**: the project directory mounted at `/work` (this defines the instance identity).
-- **`--home` / `AI_SHELL_HOME`**: points to the **Docker build context** (where `docker/Dockerfile` lives).
-  - Typical installed locations are auto-detected (for example `~/.local/share/ai-shell` or `/usr/local/share/ai-shell`).
-  - You usually do **not** need `--home` after `make install`.
-  - When you *do* need it:
-    - running from a git checkout / dev build (`go run ...`, `./bin/ai-shell`)
-    - tests/CI/AI agent operating on a workspace
-    - custom packaging or another non-standard install layout
-  - Precedence: `--home` > `AI_SHELL_HOME` > auto-discovery.
-  - Env-file discovery for `GH_TOKEN` is global (see above) and is **not** tied to `--home`.
+```bash
+cd .ai-shell
+podman-compose up -d --build
+podman-compose exec ai-shell bash
+```
 
 ## Use
 
@@ -373,31 +354,54 @@ The container persists data in two locations:
 1. **Project directory** (`/work`): Files created here appear in your local directory
 2. **Docker volume** (`ai_agent_shell_home` → `/root`): Home directory, configs, and installed packages
 
-**Important:** When rebuilding the image, your volume data persists. Use `ai-shell up --recreate` to rebuild while preserving your data (when running from a source checkout without installation, add `--home "$(pwd)"` or set `AI_SHELL_HOME="$(pwd)"` so `ai-shell` can find `docker/Dockerfile`).
 
 ## Configuration
 
-### `ai-shell init` (recommended first-run setup)
+### `ai-shell setup` (one-time per machine)
 
-`ai-shell init` bootstraps:
+`ai-shell setup` creates global configuration:
+
 - `config.toml` (mode + seeded base image aliases)
 - a global `.env` file (optionally containing `GH_TOKEN`)
 
 Interactive (TTY):
 
 ```bash
-ai-shell init
+ai-shell setup
 ```
 
 Non-interactive (scripts/CI; defaults to docker):
 
 ```bash
-ai-shell init --yes
+ai-shell setup --yes
 ```
 
 Where it writes (defaults):
 - `config.toml`: `$XDG_CONFIG_HOME/ai-shell/config.toml` or `~/.config/ai-shell/config.toml`
 - `.env`: `$XDG_CONFIG_HOME/ai-shell/.env` or `~/.config/ai-shell/.env`
+
+### `ai-shell init` (per-project)
+
+`ai-shell init` scaffolds per-project configuration:
+
+- `.ai-shell/Dockerfile`
+- `.ai-shell/docker-compose.yml`
+- `.ai-shell/bootstrap-tools.sh`, `.ai-shell/bootstrap-tools.py`
+- `.ai-shell/setup-git-ssh.sh`
+- `.ai-shell/README.md`
+
+```bash
+ai-shell init
+```
+
+Initialize a specific workdir:
+
+```bash
+ai-shell init --workdir /path/to/project
+```
+
+Where it writes:
+- `.ai-shell/`: in the current workdir (or `--workdir`)
 
 Seeded base image aliases:
 - `ubu` → `ubuntu:24.04`
