@@ -440,7 +440,7 @@ func runInit(opts initOptions) error {
 		return fmt.Errorf("failed to resolve cursor config: %w", err)
 	}
 
-	// Resolve base image
+	// Resolve base image (and expand aliases)
 	baseImage := opts.BaseImage
 	if baseImage == "" {
 		baseImage = cfg.DefaultBaseImage
@@ -448,6 +448,12 @@ func runInit(opts initOptions) error {
 	if baseImage == "" {
 		baseImage = "ubuntu:24.04"
 	}
+	// Resolve alias to actual image reference
+	resolvedImage, _, err := resolveBaseImage(baseImage, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to resolve base image: %w", err)
+	}
+	baseImage = resolvedImage
 
 	// Use exportFiles to scaffold .ai-shell/
 	cliCfg := &Config{Workdir: workdir}
