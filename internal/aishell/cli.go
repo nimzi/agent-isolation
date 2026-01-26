@@ -2,11 +2,9 @@ package aishell
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -155,123 +153,6 @@ func requireManaged(d Docker, container string, expectedWorkdir string) error {
 	return nil
 }
 
-// runComposeUp runs docker compose commands for a workspace.
-// It prints each command before running it.
-func runComposeUp(runtime, composeDir string) error {
-	fmt.Println("Ejected workspace detected. Running docker compose commands...")
-	fmt.Println()
-
-	// Determine compose command based on runtime
-	var composeCmd string
-	var composeArgs []string
-	if runtime == ModePodman {
-		composeCmd = "podman-compose"
-		composeArgs = nil
-	} else {
-		composeCmd = "docker"
-		composeArgs = []string{"compose"}
-	}
-
-	// Helper to run a compose command with output
-	runCompose := func(args ...string) error {
-		var fullArgs []string
-		fullArgs = append(fullArgs, composeArgs...)
-		fullArgs = append(fullArgs, args...)
-
-		// Print the command
-		cmdStr := composeCmd
-		for _, a := range fullArgs {
-			cmdStr += " " + a
-		}
-		fmt.Printf("$ %s\n", cmdStr)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, composeCmd, fullArgs...)
-		cmd.Dir = composeDir
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	}
-
-	// Helper to run a compose command and capture output (no TTY)
-	runComposeCapture := func(args ...string) (string, error) {
-		var fullArgs []string
-		fullArgs = append(fullArgs, composeArgs...)
-		fullArgs = append(fullArgs, args...)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, composeCmd, fullArgs...)
-		cmd.Dir = composeDir
-		out, err := cmd.CombinedOutput()
-		return string(out), err
-	}
-
-	// Run: docker compose up -d --build
-	if err := runCompose("up", "-d", "--build"); err != nil {
-		return fmt.Errorf("compose up failed: %w", err)
-	}
-
-	fmt.Println()
-
-	// Run: docker compose exec ai-shell sh /work/.ai-shell/bootstrap-tools.sh
-	if err := runCompose("exec", "ai-shell", "sh", "/work/.ai-shell/bootstrap-tools.sh"); err != nil {
-		return fmt.Errorf("bootstrap-tools failed: %w", err)
-	}
-
-	fmt.Println()
-
-	// SSH setup (optional, warn on failure)
-	sshScriptPath := filepath.Join(composeDir, "setup-git-ssh.sh")
-	if _, err := os.Stat(sshScriptPath); os.IsNotExist(err) {
-		warnf("Warning: setup-git-ssh.sh not found in .ai-shell/; skipping SSH setup.\n\n")
-	} else {
-		// Check if SSH is already configured inside the container
-		sshCheck := `test -f "$HOME/.ssh/id_ed25519" && git config --global --get url."git@github.com:".insteadOf "https://github.com/" >/dev/null 2>&1 && echo OK`
-		out, err := runComposeCapture("exec", "-T", "ai-shell", "sh", "-c", sshCheck)
-		if err == nil && strings.Contains(out, "OK") {
-			fmt.Println("SSH already configured; skipping setup.")
-		} else {
-			// Check if gh is authenticated
-			_, ghErr := runComposeCapture("exec", "-T", "ai-shell", "gh", "auth", "status")
-			if ghErr != nil {
-				warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so SSH setup was skipped.
-
-Next steps:
-  - docker compose exec ai-shell bash
-  - gh auth login
-  - bash /work/.ai-shell/setup-git-ssh.sh
-
-`)
-			} else {
-				// gh is authenticated; run SSH setup
-				fmt.Println("Running SSH setup...")
-				if err := runCompose("exec", "ai-shell", "sh", "/work/.ai-shell/setup-git-ssh.sh"); err != nil {
-					warnf("Warning: SSH setup failed (container is still usable).\n")
-					warnf("You can retry manually: docker compose exec ai-shell bash /work/.ai-shell/setup-git-ssh.sh\n\n")
-				}
-			}
-		}
-	}
-
-	fmt.Println("OK: compose up complete")
-	return nil
-}
-
-// buildLabels returns docker run --label args for ai-shell managed containers.
-// Note: workdir is NOT stored as a label; it's discovered from the /work bind mount.
-func buildLabels(instanceID, volumeName string) []string {
-	return []string{
-		"--label", LabelManaged + "=true",
-		"--label", LabelSchema + "=1",
-		"--label", LabelInstance + "=" + instanceID,
-		"--label", LabelVolume + "=" + volumeName,
-	}
-}
 
 func installCursorAgentIfMissing(d Docker, container string) error {
 	dLong := d
@@ -322,7 +203,6 @@ func bootstrapTools(d Docker, container string) error {
 }
 
 func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
-	var cursorConfig string
 	var envFile string
 	var noBuild bool
 	var noInstall bool
@@ -354,7 +234,7 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			workdir, iid, container, image, volume, err := resolveInstance(cfg)
+			workdir, _, container, _, _, err := resolveInstance(cfg)
 			if err != nil {
 				return err
 			}
@@ -362,21 +242,26 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 			// Build context is .ai-shell/ in the workdir
 			aiShellDir := filepath.Join(workdir, ".ai-shell")
 
-			runtime, err := NewDocker(getRuntimeMode())
+			runtimeMode := getRuntimeMode()
+
+			// We need Docker for some inspection commands
+			d, err := NewDocker(runtimeMode)
 			if err != nil {
 				return err
 			}
-			runtime.Dir = aiShellDir
-			d := runtime
+			d.Dir = aiShellDir
 			if err := d.Require(); err != nil {
 				return err
 			}
 
-			cursorDir, err := ensureCursorConfigDir(cursorConfig)
+			// Create Compose instance for running compose commands
+			compose, err := NewCompose(runtimeMode, aiShellDir)
 			if err != nil {
 				return err
 			}
+			compose.Timeout = 15 * time.Minute
 
+			// Resolve env file and set AI_SHELL_ENV_FILE for compose to pick up
 			envRes, err := resolveEnvFileArgs(envFile, cmd.Flags().Changed("env-file"))
 			if err != nil {
 				return err
@@ -387,61 +272,62 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				}
 				warnf("%s\n\n", formatEnvMissingWarning(defaultGlobalEnvFilePath()))
 			}
-
-			if recreate && d.ContainerExists(container) {
-				_ = d.Stop(container)
-				_ = d.Remove(container)
+			// Set AI_SHELL_ENV_FILE so docker-compose.yml can use it
+			if envRes.Path != "" {
+				os.Setenv("AI_SHELL_ENV_FILE", envRes.Path)
 			}
 
+			// Handle recreate: use docker compose down
+			if recreate && d.ContainerExists(container) {
+				fmt.Println("Stopping and removing existing container...")
+				_ = compose.Down()
+			}
+
+			// Resolve base image for build arg
+			base := "ubuntu:24.04"
 			if !noBuild {
 				appCfg, err := readConfig()
 				if err != nil {
 					return err
 				}
-				base, _, _, err := chooseBaseImage(baseImage, args, appCfg)
+				var chosenBase string
+				chosenBase, _, _, err = chooseBaseImage(baseImage, args, appCfg)
 				if err != nil {
 					return err
 				}
-				if err := d.BuildImageWithArgs(image, "--build-arg", "BASE_IMAGE="+base); err != nil {
-					return err
+				base = chosenBase
+			}
+
+			// Run docker compose up -d --build (or without --build if noBuild)
+			if noBuild {
+				if err := compose.Up(false); err != nil {
+					return fmt.Errorf("compose up failed: %w", err)
+				}
+			} else {
+				if err := compose.UpWithBuildArg("BASE_IMAGE", base); err != nil {
+					return fmt.Errorf("compose up --build failed: %w", err)
 				}
 			}
 
-			if !d.ContainerExists(container) {
-			args := []string{
-				"--name", container,
+			// Run bootstrap tools
+			fmt.Println()
+			if err := compose.Exec("ai-shell", "sh", "/work/.ai-shell/bootstrap-tools.sh"); err != nil {
+				return fmt.Errorf("bootstrap tools: %w", err)
 			}
-			args = append(args, buildLabels(iid, volume)...)
-				args = append(args,
-					"-v", workdir+":/work",
-					"-v", volume+":/root",
-					"-v", cursorDir+":/root/.config/cursor:ro",
-				)
-				args = append(args, envRes.Args...)
-				args = append(args, image)
 
-				if err := d.RunDetached(args...); err != nil {
-					return err
+			// Install cursor-agent
+			if !noInstall {
+				if err := installCursorAgentIfMissing(d, container); err != nil {
+					warnCursorAgentInstallFailure(err)
 				}
+			}
 
-				if err := bootstrapTools(d, container); err != nil {
-					return fmt.Errorf("bootstrap tools: %w", err)
-				}
-
-				// Install cursor-agent as early as possible so the container is still usable
-				// even if SSH setup fails (e.g. port 22 blocked on this network).
-				if !noInstall {
-					if err := installCursorAgentIfMissing(d, container); err != nil {
-						warnCursorAgentInstallFailure(err)
-					}
-				}
-
-			// SSH setup (writes keys into /root persistent volume).
-			// If an env file was provided/found, keep "fail fast" behavior.
-			if len(envRes.Args) > 0 {
-				dLong := d
-				dLong.Timeout = 15 * time.Minute
-				out, err := dLong.ExecCapture(container, "bash /work/.ai-shell/setup-git-ssh.sh")
+			// SSH setup
+			fmt.Println()
+			hasEnvFile := envRes.Path != ""
+			if hasEnvFile {
+				// If an env file was provided/found, keep "fail fast" behavior.
+				out, err := compose.ExecCapture("ai-shell", "bash", "/work/.ai-shell/setup-git-ssh.sh")
 				if err != nil {
 					out = redactSecrets(out)
 					out = strings.TrimSpace(out)
@@ -476,8 +362,12 @@ Output from setup-git-ssh.sh:
 					return errors.New(msg)
 				}
 			} else {
-				// No env file: only attempt SSH setup if gh is already authenticated in the persistent /root volume.
-				if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
+				// No env file: only attempt SSH setup if gh is already authenticated.
+				// First check if SSH is already configured
+				needsSSH, _ := compose.ExecCapture("ai-shell", "sh", "-c", `test -f "$HOME/.ssh/id_ed25519" && git config --global --get url."git@github.com:".insteadOf "https://github.com/" >/dev/null 2>&1 && echo OK`)
+				if strings.Contains(needsSSH, "OK") {
+					// SSH already configured, skip
+				} else if _, err := compose.ExecCapture("ai-shell", "gh", "auth", "status"); err != nil {
 					warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so SSH setup was skipped.
 
 Next steps:
@@ -491,10 +381,8 @@ Then finish SSH setup:
 
 `)
 				} else {
-					// Auth already exists (likely from a prior interactive login); proceed with SSH bootstrap.
-					dLong := d
-					dLong.Timeout = 15 * time.Minute
-					if out, err := dLong.ExecCapture(container, "bash /work/.ai-shell/setup-git-ssh.sh"); err != nil {
+					// Auth already exists; proceed with SSH bootstrap.
+					if out, err := compose.ExecCapture("ai-shell", "bash", "/work/.ai-shell/setup-git-ssh.sh"); err != nil {
 						out = redactSecrets(out)
 						out = strings.TrimSpace(out)
 						const maxOut = 4000
@@ -513,63 +401,6 @@ Output from setup-git-ssh.sh:
 					}
 				}
 			}
-			} else {
-				if err := requireManaged(d, container, workdir); err != nil {
-					return err
-				}
-				if !d.ContainerRunning(container) {
-					if err := d.Start(container); err != nil {
-						return err
-					}
-				}
-
-				if err := bootstrapTools(d, container); err != nil {
-					return fmt.Errorf("bootstrap tools: %w", err)
-				}
-
-			// If SSH setup was previously skipped, try again once gh auth exists.
-			needsSSH, err := d.ExecCapture(container, `test -f "$HOME/.ssh/id_ed25519" && git config --global --get url."git@github.com:".insteadOf "https://github.com/" >/dev/null 2>&1 && echo OK`)
-			if err != nil || !strings.Contains(needsSSH, "OK") {
-				if _, err := d.ExecCapture(container, "gh auth status >/dev/null 2>&1"); err != nil {
-					warnf(`Warning: GitHub CLI (gh) is not authenticated inside the container, so GitHub SSH setup has not been completed.
-
-Next steps:
-  - ai-shell enter
-  - gh auth login
-  - gh auth status
-
-Then run:
-  - bash /work/.ai-shell/setup-git-ssh.sh
-  - or just re-run: ai-shell up
-
-`)
-				} else {
-					dLong := d
-					dLong.Timeout = 15 * time.Minute
-					if out, err := dLong.ExecCapture(container, "bash /work/.ai-shell/setup-git-ssh.sh"); err != nil {
-						out = redactSecrets(out)
-						out = strings.TrimSpace(out)
-						const maxOut = 4000
-						if len(out) > maxOut {
-							out = out[:maxOut] + "\n...(truncated)"
-						}
-						msg := strings.TrimSpace(fmt.Sprintf(`
-SSH setup failed inside the container.
-
-Output from setup-git-ssh.sh:
-%s
-`, out))
-						return errors.New(msg)
-					}
-				}
-			}
-			}
-
-			if !noInstall {
-				if err := installCursorAgentIfMissing(d, container); err != nil {
-					warnCursorAgentInstallFailure(err)
-				}
-			}
 
 			fmt.Printf("OK: up: %s\n", container)
 			fmt.Printf("workdir: %s\n", workdir)
@@ -577,8 +408,7 @@ Output from setup-git-ssh.sh:
 		},
 	}
 
-	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
-	cmd.Flags().StringVar(&envFile, "env-file", "", "Env file to pass to docker run. Resolution: --env-file, AI_SHELL_ENV_FILE, then $XDG_CONFIG_HOME/ai-shell/.env or ~/.config/ai-shell/.env if present. Optional. Set to empty to disable.")
+	cmd.Flags().StringVar(&envFile, "env-file", "", "Env file path. Resolution: --env-file, AI_SHELL_ENV_FILE, then $XDG_CONFIG_HOME/ai-shell/.env or ~/.config/ai-shell/.env if present. Optional. Set to empty to disable.")
 	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (may be an alias defined via `ai-shell config alias`). Can also be provided as an optional positional argument.")
 	cmd.Flags().BoolVar(&noBuild, "no-build", false, "Skip docker build")
 	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip installing cursor-agent")

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.1**
+**Current version: 0.1.2**
 
 Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
 

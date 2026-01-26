@@ -53,6 +53,8 @@ func generateComposeYAML(iid, container, volume, cursorDir string) string {
 	sb.WriteString("  ai-shell:\n")
 	sb.WriteString("    build:\n")
 	sb.WriteString("      context: .\n")
+	sb.WriteString("      args:\n")
+	sb.WriteString("        - BASE_IMAGE=${BASE_IMAGE:-ubuntu:24.04}\n")
 	sb.WriteString("    image: ai-agent-shell\n")
 	sb.WriteString(fmt.Sprintf("    container_name: %s\n", container))
 	sb.WriteString("    labels:\n")

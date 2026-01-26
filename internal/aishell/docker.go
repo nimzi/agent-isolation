@@ -134,28 +134,6 @@ func (d Docker) InspectContainer(name string) (InspectContainer, error) {
 	return arr[0], nil
 }
 
-func (d Docker) BuildImage(image string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 10*time.Minute))
-	defer cancel()
-	return d.run(ctx, "build", "-t", image, ".")
-}
-
-func (d Docker) BuildImageWithArgs(image string, extraArgs ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 10*time.Minute))
-	defer cancel()
-	args := []string{"build", "-t", image}
-	args = append(args, extraArgs...)
-	args = append(args, ".")
-	return d.run(ctx, args...)
-}
-
-func (d Docker) RunDetached(args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 2*time.Minute))
-	defer cancel()
-	// capture output to avoid printing container IDs
-	_, err := d.runCapture(ctx, append([]string{"run", "-d"}, args...)...)
-	return err
-}
 
 func (d Docker) Start(name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
@@ -259,6 +237,169 @@ func NewDocker(runtime string) (Docker, error) {
 		return Docker{}, err
 	}
 	return Docker{Runtime: runtime}, nil
+}
+
+// Compose wraps docker compose / podman-compose commands.
+type Compose struct {
+	Runtime string        // "docker" or "podman"
+	Dir     string        // working directory (where docker-compose.yml lives)
+	Timeout time.Duration // default timeout for commands
+}
+
+// composeCmd returns the base command and args for compose.
+// For docker: "docker compose ..."
+// For podman: "podman-compose ..."
+func (c Compose) composeCmd() (string, []string) {
+	if c.Runtime == ModePodman {
+		return "podman-compose", nil
+	}
+	return "docker", []string{"compose"}
+}
+
+// run executes a compose command with stdout/stderr attached.
+func (c Compose) run(ctx context.Context, args ...string) error {
+	bin, baseArgs := c.composeCmd()
+	fullArgs := append(baseArgs, args...)
+	cmd := exec.CommandContext(ctx, bin, fullArgs...)
+	cmd.Dir = c.Dir
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// runCapture executes a compose command and captures output.
+func (c Compose) runCapture(ctx context.Context, args ...string) (string, error) {
+	bin, baseArgs := c.composeCmd()
+	fullArgs := append(baseArgs, args...)
+	cmd := exec.CommandContext(ctx, bin, fullArgs...)
+	cmd.Dir = c.Dir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	if err == nil {
+		return out.String(), nil
+	}
+	msg := strings.TrimSpace(out.String())
+	if msg == "" {
+		return "", err
+	}
+	return out.String(), fmt.Errorf("%w: %s", err, msg)
+}
+
+// Up runs "docker compose up -d" with optional --build flag.
+func (c Compose) Up(build bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 15*time.Minute))
+	defer cancel()
+	args := []string{"up", "-d"}
+	if build {
+		args = append(args, "--build")
+	}
+	return c.run(ctx, args...)
+}
+
+// UpWithBuildArg runs "docker compose up -d --build" with a build arg.
+// For docker compose: build args are passed via environment variables (docker compose up doesn't support --build-arg).
+// For podman-compose: uses native --build-arg flag which is supported.
+func (c Compose) UpWithBuildArg(argName, argValue string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 15*time.Minute))
+	defer cancel()
+
+	// Set the build arg as an environment variable for compose to pick up
+	// This works for both docker and podman since the compose file references ${BASE_IMAGE}
+	os.Setenv(argName, argValue)
+
+	args := []string{"up", "-d", "--build"}
+	// podman-compose supports --build-arg directly, so use it for better reliability
+	if c.Runtime == ModePodman {
+		args = append(args, "--build-arg", argName+"="+argValue)
+	}
+	return c.run(ctx, args...)
+}
+
+// Down runs "docker compose down".
+func (c Compose) Down() error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 2*time.Minute))
+	defer cancel()
+	return c.run(ctx, "down")
+}
+
+// DownVolumes runs "docker compose down -v" (removes volumes too).
+func (c Compose) DownVolumes() error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 2*time.Minute))
+	defer cancel()
+	return c.run(ctx, "down", "-v")
+}
+
+// Start runs "docker compose start".
+func (c Compose) Start() error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 60*time.Second))
+	defer cancel()
+	return c.run(ctx, "start")
+}
+
+// Stop runs "docker compose stop".
+func (c Compose) Stop() error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 60*time.Second))
+	defer cancel()
+	return c.run(ctx, "stop")
+}
+
+// Exec runs "docker compose exec <service> <cmd...>".
+func (c Compose) Exec(service string, cmd ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 60*time.Second))
+	defer cancel()
+	args := append([]string{"exec", service}, cmd...)
+	return c.run(ctx, args...)
+}
+
+// ExecT runs "docker compose exec -T <service> <cmd...>" (no TTY).
+func (c Compose) ExecT(service string, cmd ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 60*time.Second))
+	defer cancel()
+	args := append([]string{"exec", "-T", service}, cmd...)
+	return c.run(ctx, args...)
+}
+
+// ExecCapture runs "docker compose exec -T <service> <cmd...>" and captures output.
+func (c Compose) ExecCapture(service string, cmd ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 60*time.Second))
+	defer cancel()
+	args := append([]string{"exec", "-T", service}, cmd...)
+	return c.runCapture(ctx, args...)
+}
+
+// PS runs "docker compose ps -q" and returns container IDs.
+func (c Compose) PS() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), orDefault(c.Timeout, 30*time.Second))
+	defer cancel()
+	out, err := c.runCapture(ctx, "ps", "-q")
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln != "" {
+			ids = append(ids, ln)
+		}
+	}
+	return ids, nil
+}
+
+// IsRunning checks if the compose service has running containers.
+func (c Compose) IsRunning() bool {
+	ids, err := c.PS()
+	return err == nil && len(ids) > 0
+}
+
+// NewCompose creates a Compose instance for the given runtime and directory.
+func NewCompose(runtime, dir string) (Compose, error) {
+	if err := validateMode(runtime); err != nil {
+		return Compose{}, err
+	}
+	return Compose{Runtime: runtime, Dir: dir}, nil
 }
 
 func orDefault[T comparable](v T, def T) T {
