@@ -173,21 +173,22 @@ func (d Docker) RemoveImage(name string) error {
 func (d Docker) ExecCapture(container string, cmd string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
 	defer cancel()
-	// Use sh for portability across base images (bash may not exist yet).
-	return d.runCapture(ctx, "exec", container, "sh", "-c", cmd)
+	// Force HOME=/root: some base images (e.g. ocaml/opam) set ENV HOME to a
+	// non-root user's home. The /root volume is ai-shell's contract, so all
+	// exec'd commands must use it.
+	return d.runCapture(ctx, "exec", "-e", "HOME=/root", container, "sh", "-c", cmd)
 }
 
 func (d Docker) Exec(container string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
 	defer cancel()
-	return d.run(ctx, append([]string{"exec", container}, args...)...)
+	return d.run(ctx, append([]string{"exec", "-e", "HOME=/root", container}, args...)...)
 }
 
 func (d Docker) ExecTty(container string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 60*time.Second))
 	defer cancel()
-	// -t enables nicer output (colors/progress bars) when host has a TTY.
-	return d.run(ctx, append([]string{"exec", "-t", container}, args...)...)
+	return d.run(ctx, append([]string{"exec", "-e", "HOME=/root", "-t", container}, args...)...)
 }
 
 func (d Docker) InspectMounts(container string) (string, error) {
