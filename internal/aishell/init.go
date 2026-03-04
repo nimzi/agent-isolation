@@ -457,3 +457,78 @@ func runInit(opts initOptions) error {
 
 	return nil
 }
+
+// runRegen regenerates docker-compose.yml with a new random instance ID.
+// It never touches docker-compose.override.yml, Dockerfile, scripts, or README.md.
+func runRegen(cfg *Config, baseImage string) error {
+	workdir, err := CanonicalWorkdir(cfg.Workdir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve workdir: %w", err)
+	}
+
+	aiShellDir := filepath.Join(workdir, ".ai-shell")
+	if _, err := os.Stat(aiShellDir); os.IsNotExist(err) {
+		return fmt.Errorf(".ai-shell/ does not exist in %s\nRun 'ai-shell init' first", workdir)
+	}
+
+	// Resolve base image alias if needed
+	appCfg, err := readConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+	resolvedImage, _, err := resolveBaseImage(baseImage, appCfg)
+	if err != nil {
+		return fmt.Errorf("failed to resolve base image: %w", err)
+	}
+
+	// Collect existing managed iids to avoid collisions
+	runtimeMode := getRuntimeMode()
+	d, err := NewDocker(runtimeMode)
+	if err != nil {
+		return fmt.Errorf("failed to connect to container runtime: %w", err)
+	}
+	existingInstances, err := listManagedInstances(d)
+	if err != nil {
+		// Non-fatal: if we can't list, proceed without collision check
+		fmt.Fprintf(os.Stderr, "Warning: could not list managed containers for collision check: %v\n", err)
+		existingInstances = nil
+	}
+	existingIIDs := make(map[string]bool, len(existingInstances))
+	for _, inst := range existingInstances {
+		existingIIDs[inst.InstanceID] = true
+	}
+
+	// Generate a unique random iid
+	var newIID string
+	for {
+		newIID, err = RandomIID()
+		if err != nil {
+			return fmt.Errorf("failed to generate random iid: %w", err)
+		}
+		if !existingIIDs[newIID] {
+			break
+		}
+	}
+
+	// Derive container/volume/image names from the new iid
+	containerBase, imageBase, volumeBase := resolveBases(cfg)
+	container := containerBase + "-" + newIID
+	volume := volumeBase + "_" + newIID
+	image := imageBase + "-" + newIID
+
+	// Write the new docker-compose.yml
+	composeContent := generateComposeYAML(newIID, container, image, volume, resolvedImage)
+	composePath := filepath.Join(aiShellDir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, []byte(composeContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "OK: regenerated docker-compose.yml\n")
+	fmt.Fprintf(os.Stderr, "new iid:       %s\n", newIID)
+	fmt.Fprintf(os.Stderr, "container:     %s\n", container)
+	fmt.Fprintf(os.Stderr, "image:         %s\n", image)
+	fmt.Fprintf(os.Stderr, "volume:        %s\n", volume)
+	fmt.Fprintf(os.Stderr, "\nNext: run 'ai-shell up --recreate' to apply the new configuration\n")
+
+	return nil
+}

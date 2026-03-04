@@ -40,34 +40,44 @@ alp = "alpine:3.19"
 	}
 
 	tests := []struct {
-		name          string
-		baseImage     string // input (may be alias)
-		wantInFile    string // expected resolved image in Dockerfile
-		wantNotInFile string // should NOT appear in Dockerfile (use \n to ensure exact line match)
+		name             string
+		baseImage        string // input (may be alias)
+		wantInFile       string // expected resolved image in Dockerfile
+		wantNotInFile    string // should NOT appear in Dockerfile
+		wantInCompose    string // expected in docker-compose.yml build args
+		wantNotInCompose string // should NOT appear in docker-compose.yml build args
 	}{
 		{
-			name:          "alias deb resolves to debian:12-slim",
-			baseImage:     "deb",
-			wantInFile:    "ARG BASE_IMAGE=debian:12-slim",
-			wantNotInFile: "ARG BASE_IMAGE=deb\n", // exact line - alias alone should not appear
+			name:               "alias deb resolves to debian:12-slim",
+			baseImage:          "deb",
+			wantInFile:         "ARG BASE_IMAGE=debian:12-slim",
+			wantNotInFile:      "ARG BASE_IMAGE=deb\n",
+			wantInCompose:      "BASE_IMAGE=${BASE_IMAGE:-debian:12-slim}",
+			wantNotInCompose:   "BASE_IMAGE=${BASE_IMAGE:-ubuntu:24.04}",
 		},
 		{
-			name:          "alias alp resolves to alpine:3.19",
-			baseImage:     "alp",
-			wantInFile:    "ARG BASE_IMAGE=alpine:3.19",
-			wantNotInFile: "ARG BASE_IMAGE=alp\n",
+			name:               "alias alp resolves to alpine:3.19",
+			baseImage:          "alp",
+			wantInFile:         "ARG BASE_IMAGE=alpine:3.19",
+			wantNotInFile:      "ARG BASE_IMAGE=alp\n",
+			wantInCompose:      "BASE_IMAGE=${BASE_IMAGE:-alpine:3.19}",
+			wantNotInCompose:   "BASE_IMAGE=${BASE_IMAGE:-ubuntu:24.04}",
 		},
 		{
-			name:          "literal image stays as-is",
-			baseImage:     "python:3.12-slim",
-			wantInFile:    "ARG BASE_IMAGE=python:3.12-slim",
-			wantNotInFile: "",
+			name:               "literal image stays as-is",
+			baseImage:          "python:3.12-slim",
+			wantInFile:         "ARG BASE_IMAGE=python:3.12-slim",
+			wantNotInFile:      "",
+			wantInCompose:      "BASE_IMAGE=${BASE_IMAGE:-python:3.12-slim}",
+			wantNotInCompose:   "BASE_IMAGE=${BASE_IMAGE:-ubuntu:24.04}",
 		},
 		{
-			name:          "default from config resolves alias",
-			baseImage:     "", // empty means use default from config (ubu -> ubuntu:24.04)
-			wantInFile:    "ARG BASE_IMAGE=ubuntu:24.04",
-			wantNotInFile: "", // can't easily test "ubu" since it's substring of "ubuntu"
+			name:               "default from config resolves alias",
+			baseImage:          "",
+			wantInFile:         "ARG BASE_IMAGE=ubuntu:24.04",
+			wantNotInFile:      "",
+			wantInCompose:      "BASE_IMAGE=${BASE_IMAGE:-ubuntu:24.04}",
+			wantNotInCompose:   "",
 		},
 	}
 
@@ -114,14 +124,31 @@ alp = "alpine:3.19"
 				t.Fatalf("failed to read Dockerfile: %v", err)
 			}
 
-			// Check that the resolved image is in the file
+			// Check that the resolved image is in the Dockerfile
 			if !strings.Contains(string(content), tt.wantInFile) {
 				t.Errorf("Dockerfile should contain %q, got:\n%s", tt.wantInFile, content)
 			}
 
-			// Check that the alias is NOT in the file (if specified)
+			// Check that the alias is NOT in the Dockerfile (if specified)
 			if tt.wantNotInFile != "" && strings.Contains(string(content), tt.wantNotInFile) {
 				t.Errorf("Dockerfile should NOT contain %q, got:\n%s", tt.wantNotInFile, content)
+			}
+
+			// Read the generated docker-compose.yml
+			composePath := filepath.Join(aiShellDir, "docker-compose.yml")
+			composeContent, err := os.ReadFile(composePath)
+			if err != nil {
+				t.Fatalf("failed to read docker-compose.yml: %v", err)
+			}
+
+			// Check that the resolved image is the build arg default in docker-compose.yml
+			if tt.wantInCompose != "" && !strings.Contains(string(composeContent), tt.wantInCompose) {
+				t.Errorf("docker-compose.yml should contain %q, got:\n%s", tt.wantInCompose, composeContent)
+			}
+
+			// Check that the old default is NOT in docker-compose.yml (if specified)
+			if tt.wantNotInCompose != "" && strings.Contains(string(composeContent), tt.wantNotInCompose) {
+				t.Errorf("docker-compose.yml should NOT contain %q, got:\n%s", tt.wantNotInCompose, composeContent)
 			}
 		})
 	}

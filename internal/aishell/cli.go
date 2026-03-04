@@ -93,6 +93,7 @@ Defaults can be overridden via env vars:
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newSetupCmd())
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newRegenCmd(cfg))
 
 	return root
 }
@@ -1256,6 +1257,43 @@ After init, run 'ai-shell up' to build and start the container.
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files")
 	cmd.Flags().StringVar(&workdir, "workdir", "", "Target workdir (default: current directory)")
 	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (default: from config or ubuntu:24.04)")
+
+	return cmd
+}
+
+func newRegenCmd(cfg *Config) *cobra.Command {
+	var workdir string
+	var baseImage string
+
+	cmd := &cobra.Command{
+		Use:   "regen",
+		Short: "Regenerate docker-compose.yml with a new random instance ID",
+		Long: strings.TrimSpace(`
+Regenerate docker-compose.yml for this project with a new random instance ID.
+
+This command rewrites only docker-compose.yml — it never touches
+docker-compose.override.yml, Dockerfile, scripts, or README.md.
+
+The new instance ID is randomly generated and checked against all existing
+managed containers to avoid collisions.
+
+--base-image is required to ensure the compose file's build arg default
+is set intentionally (it cannot be inferred from the existing compose file).
+
+After regen, run 'ai-shell up --recreate' to apply the new configuration.
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if baseImage == "" {
+				return fmt.Errorf("--base-image is required for regen\n\nSpecify the base image to embed as the default build arg, e.g.:\n  ai-shell regen --base-image ubuntu:24.04")
+			}
+
+			cfg.Workdir = workdir
+			return runRegen(cfg, baseImage)
+		},
+	}
+
+	cmd.Flags().StringVar(&workdir, "workdir", "", "Target workdir (default: current directory)")
+	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image to embed as the default build arg in docker-compose.yml (required)")
 
 	return cmd
 }

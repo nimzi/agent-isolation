@@ -1,6 +1,7 @@
 package aishell
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -39,6 +40,15 @@ func CanonicalWorkdir(p string) (string, error) {
 func InstanceID(workdir string) string {
 	sum := sha256.Sum256([]byte(workdir))
 	return hex.EncodeToString(sum[:])[:10]
+}
+
+// RandomIID generates a random 10-character hex instance ID using crypto/rand.
+func RandomIID() (string, error) {
+	b := make([]byte, 5)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random iid: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func NamesFor(workdir, containerBase, volumeBase string) (container string, volume string) {

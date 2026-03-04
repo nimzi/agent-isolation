@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.7**
+**Current version: 0.1.8**
 
 Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
 
@@ -176,7 +176,7 @@ ai-shell init
 ```
 
 This creates:
-- Per-project `.ai-shell/` directory with Dockerfile, scripts, and docker-compose.yml
+- Per-project `.ai-shell/` directory with `Dockerfile`, `docker-compose.yml` (auto-generated), `docker-compose.override.yml` (user-editable), and scripts
 
 **Build and start the container:**
 ```bash
@@ -320,10 +320,18 @@ ai-shell rm --nuke --yes
 ### Customizing the Container
 
 Each project has its own `.ai-shell/` directory (created by `ai-shell init`) containing:
+- `docker-compose.override.yml` - **edit this** to add volume mounts, environment variables, ports, services; never overwritten by ai-shell
 - `Dockerfile` - modify to change base image, add packages, etc.
-- `docker-compose.yml` - add volume mounts, environment variables, services
 - `bootstrap-tools.sh` / `bootstrap-tools.py` - modify which packages are installed
 - `setup-git-ssh.sh` - customize SSH/git setup
+
+**Note:** `docker-compose.yml` is auto-generated — do not edit it by hand. Use `docker-compose.override.yml` for customizations. Both files are automatically merged by `docker compose` / `podman-compose`.
+
+To regenerate `docker-compose.yml` with a new random instance ID (e.g. to get a fresh container/volume name):
+
+```bash
+ai-shell regen --base-image ubuntu:24.04
+```
 
 You can commit `.ai-shell/` to version control so team members get the same container setup.
 

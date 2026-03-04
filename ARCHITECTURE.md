@@ -24,6 +24,7 @@ The “instance identity” is the **canonicalized workdir path**:
 
 - `InstanceID(workdir)` = `sha256(workdir)` encoded to hex, truncated to **10 chars**
 - Used for naming and labeling.
+- `RandomIID()` generates a random 10-char hex iid via `crypto/rand` — used by `ai-shell regen`.
 
 ### Naming scheme
 
@@ -131,6 +132,19 @@ Entrypoint: `cmd/ai-shell/main.go` calls `aishell.Main()`, which constructs the 
 - **Inputs**: one arg (`docker` or `podman`)
 - **Preconditions**: none (config command bypasses `PersistentPreRunE`)
 - **Side effects**: writes `config.toml` with `0600` permissions
+
+### `init`
+
+- Scaffolds `.ai-shell/` with all files listed above.
+- `docker-compose.override.yml` is written only if it does not already exist (never overwritten even with `--force`).
+- `--force` overwrites all other files.
+
+### `regen`
+
+- Rewrites only `docker-compose.yml` with a new random iid.
+- `--base-image <img>` is **required** (no default) to prevent accidental loss of the previously chosen base image default.
+- Collision-checks the new iid against all existing managed container iids; retries until unique.
+- Never touches `docker-compose.override.yml`, `Dockerfile`, scripts, or `README.md`.
 
 ### `up` / `recreate`
 
@@ -295,10 +309,15 @@ Scripts are embedded in the `ai-shell` binary via Go's `//go:embed` directive (s
 
 `ai-shell init` scaffolds `.ai-shell/` in the workdir with:
 - `Dockerfile`
-- `docker-compose.yml`
+- `docker-compose.yml` (auto-generated; never edit by hand)
+- `docker-compose.override.yml` (user-editable; never overwritten by ai-shell)
 - `bootstrap-tools.sh`, `bootstrap-tools.py`
 - `setup-git-ssh.sh`
 - `README.md`
+
+`docker-compose.yml` and `docker-compose.override.yml` are automatically merged by `docker compose` / `podman-compose` — no `-f` flags needed.
+
+`ai-shell regen --base-image <img>` regenerates only `docker-compose.yml` with a new random iid (collision-checked against existing managed containers), leaving all other files intact.
 
 `ai-shell up` requires `.ai-shell/` to exist and uses it as the Docker build context.
 
