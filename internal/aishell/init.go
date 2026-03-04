@@ -28,10 +28,9 @@ type setupOptions struct {
 
 // initOptions for the per-project 'init' command
 type initOptions struct {
-	Force        bool
-	Workdir      string
-	BaseImage    string
-	CursorConfig string
+	Force     bool
+	Workdir   string
+	BaseImage string
 }
 
 func getHostGHToken(cmd string) (string, error) {
@@ -430,16 +429,6 @@ func runInit(opts initOptions) error {
 
 	aiShellDir := filepath.Join(workdir, ".ai-shell")
 
-	// Resolve cursor config directory
-	cursorConfig := opts.CursorConfig
-	if cursorConfig == "" {
-		cursorConfig = "~/.config/cursor"
-	}
-	cursorDir, err := ensureCursorConfigDir(cursorConfig)
-	if err != nil {
-		return fmt.Errorf("failed to resolve cursor config: %w", err)
-	}
-
 	// Resolve base image (and expand aliases)
 	baseImage := opts.BaseImage
 	if baseImage == "" {
@@ -457,7 +446,7 @@ func runInit(opts initOptions) error {
 
 	// Use exportFiles to scaffold .ai-shell/
 	cliCfg := &Config{Workdir: workdir}
-	if err := exportFiles(aiShellDir, workdir, cliCfg, baseImage, cursorDir, opts.Force); err != nil {
+	if err := exportFiles(aiShellDir, workdir, cliCfg, baseImage, opts.Force); err != nil {
 		return fmt.Errorf("failed to scaffold .ai-shell/: %w", err)
 	}
 

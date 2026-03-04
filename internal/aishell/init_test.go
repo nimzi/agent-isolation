@@ -39,12 +39,6 @@ alp = "alpine:3.19"
 		t.Fatalf("failed to create workdir: %v", err)
 	}
 
-	// Create cursor config dir (required by init)
-	cursorDir := filepath.Join(tmpDir, "cursor")
-	if err := os.MkdirAll(cursorDir, 0o755); err != nil {
-		t.Fatalf("failed to create cursor dir: %v", err)
-	}
-
 	tests := []struct {
 		name          string
 		baseImage     string // input (may be alias)
@@ -109,7 +103,7 @@ alp = "alpine:3.19"
 
 			// Export files
 			cliCfg := &Config{Workdir: workdir}
-			if err := exportFiles(aiShellDir, workdir, cliCfg, resolvedImage, cursorDir, true); err != nil {
+			if err := exportFiles(aiShellDir, workdir, cliCfg, resolvedImage, true); err != nil {
 				t.Fatalf("exportFiles failed: %v", err)
 			}
 

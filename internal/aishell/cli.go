@@ -125,17 +125,6 @@ func resolveInstance(cfg *Config) (workdir, instanceID, container, image, volume
 	return wd, InstanceID(wd), containerName, imageName, volumeName, nil
 }
 
-func ensureCursorConfigDir(p string) (string, error) {
-	p = expandUser(p)
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(abs, 0o755); err != nil {
-		return "", err
-	}
-	return abs, nil
-}
 
 func requireManaged(d Docker, container string, expectedWorkdir string) error {
 	info, err := d.InspectContainer(container)
@@ -1231,7 +1220,6 @@ func newInitCmd() *cobra.Command {
 	var force bool
 	var workdir string
 	var baseImage string
-	var cursorConfig string
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -1258,10 +1246,9 @@ After init, run 'ai-shell up' to build and start the container.
 			}
 
 			return runInit(initOptions{
-				Force:        force,
-				Workdir:      workdir,
-				BaseImage:    baseImage,
-				CursorConfig: cursorConfig,
+				Force:     force,
+				Workdir:   workdir,
+				BaseImage: baseImage,
 			})
 		},
 	}
@@ -1269,7 +1256,6 @@ After init, run 'ai-shell up' to build and start the container.
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files")
 	cmd.Flags().StringVar(&workdir, "workdir", "", "Target workdir (default: current directory)")
 	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (default: from config or ubuntu:24.04)")
-	cmd.Flags().StringVar(&cursorConfig, "cursor-config", "~/.config/cursor", "Host Cursor config directory")
 
 	return cmd
 }

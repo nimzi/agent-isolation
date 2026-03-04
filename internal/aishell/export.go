@@ -42,7 +42,7 @@ CMD ["sh", "-c", "while true; do sleep 3600; done"]
 
 // generateComposeYAML returns the docker-compose.yml content for export.
 // The workdir is discovered dynamically from the /work bind mount, not stored as a label.
-func generateComposeYAML(iid, container, volume, cursorDir string) string {
+func generateComposeYAML(iid, container, image, volume string) string {
 	// Build the YAML manually to control formatting and comments.
 	var sb strings.Builder
 
@@ -58,7 +58,7 @@ func generateComposeYAML(iid, container, volume, cursorDir string) string {
 	sb.WriteString("      context: .\n")
 	sb.WriteString("      args:\n")
 	sb.WriteString("        - BASE_IMAGE=${BASE_IMAGE:-ubuntu:24.04}\n")
-	sb.WriteString("    image: ai-agent-shell\n")
+	sb.WriteString(fmt.Sprintf("    image: %s\n", image))
 	sb.WriteString(fmt.Sprintf("    container_name: %s\n", container))
 	sb.WriteString("    labels:\n")
 	sb.WriteString(fmt.Sprintf("      %s: \"true\"\n", LabelManaged))
@@ -68,7 +68,7 @@ func generateComposeYAML(iid, container, volume, cursorDir string) string {
 	sb.WriteString("    volumes:\n")
 	sb.WriteString("      - ..:/work                           # parent dir = workdir (source of truth)\n")
 	sb.WriteString(fmt.Sprintf("      - %s:/root\n", volume))
-	sb.WriteString(fmt.Sprintf("      - %s:/root/.config/cursor:ro\n", cursorDir))
+	sb.WriteString("      - ${HOME}/.config/cursor:/root/.config/cursor:ro\n")
 	sb.WriteString("    env_file:\n")
 	sb.WriteString("      - path: ${AI_SHELL_ENV_FILE:-/dev/null}\n")
 	sb.WriteString("        required: false\n")
@@ -157,11 +157,12 @@ Container name: `+"`%s`"+`
 
 // exportFiles writes all export files to the output directory.
 // Scripts are embedded in the binary and written to the output directory.
-func exportFiles(outputDir, workdir string, cfg *Config, baseImage, cursorDir string, force bool) error {
+func exportFiles(outputDir, workdir string, cfg *Config, baseImage string, force bool) error {
 	// Resolve instance details
-	containerBase, _, volumeBase := resolveBases(cfg)
+	containerBase, imageBase, volumeBase := resolveBases(cfg)
 	iid := InstanceID(workdir)
 	container, volume := NamesFor(workdir, containerBase, volumeBase)
+	image := imageBase + "-" + iid
 
 	// Create output directory
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -191,7 +192,7 @@ func exportFiles(outputDir, workdir string, cfg *Config, baseImage, cursorDir st
 
 	// Generate and write docker-compose.yml
 	// Note: workdir is not passed; it's discovered from the /work bind mount.
-	composeContent := generateComposeYAML(iid, container, volume, cursorDir)
+	composeContent := generateComposeYAML(iid, container, image, volume)
 	if err := os.WriteFile(filepath.Join(outputDir, "docker-compose.yml"), []byte(composeContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
 	}
