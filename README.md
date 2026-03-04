@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.5**
+**Current version: 0.1.6**
 
 Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
 
@@ -227,11 +227,12 @@ ai-shell ls
 **Or manually:**
 ```bash
 # Build the image (from a project with .ai-shell/ scaffolded)
-docker build -t ai-agent-shell --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
+# The image name is per-instance: ai-agent-shell-<iid>, where <iid> is shown by `ai-shell instance`
+docker build -t ai-agent-shell-<iid> --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
 ```
 
 **Important:** `ai-shell` “metadata” is implemented as **container labels** (e.g. `com.nimzi.ai-shell.managed=true`).
-A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell`
+A plain `docker run ... ai-agent-shell-<iid>` creates a usable container, but it will **not** be detected/managed by `ai-shell`
 commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
 
 ### Workdir Discovery from /work Mount
@@ -264,7 +265,7 @@ docker run -d \
   -v "<volume_from_ai_shell_instance>":/root \
   -v "$HOME/.config/cursor":/root/.config/cursor:ro \
   --env-file "$HOME/.config/ai-shell/.env" \
-  ai-agent-shell
+  ai-agent-shell-<iid>
 ```
 
 **Note:** The workdir is NOT stored as a label; `ai-shell` discovers it from the `/work` bind mount at runtime.
