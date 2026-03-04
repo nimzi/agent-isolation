@@ -75,7 +75,7 @@ func matchTarget(target string, instances []ManagedInstance) (ManagedInstance, e
 		return ManagedInstance{}, ambiguousTargetErr(target, m)
 	}
 
-	// 2) Exact instance id match (label com.nimzi.ai-shell.instance).
+	// 2) Exact instance id match (label net.datatheory.ai-shell.instance).
 	if m := filter(instances, func(i ManagedInstance) bool { return i.InstanceID == target }); len(m) == 1 {
 		return m[0], nil
 	} else if len(m) > 1 {

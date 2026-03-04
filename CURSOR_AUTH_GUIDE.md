@@ -94,7 +94,7 @@ ai-shell check
 
 Prefer using `ai-shell up` for normal usage. Manual container creation is mainly for advanced debugging or scripting.
 
-If you build/run manually, here's the important bit: `ai-shell` "metadata" is implemented as **container labels** (for example `com.nimzi.ai-shell.managed=true`). A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell` commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
+If you build/run manually, here's the important bit: `ai-shell` "metadata" is implemented as **container labels** (for example `net.datatheory.ai-shell.managed=true`). A plain `docker run ... ai-agent-shell` creates a usable container, but it will **not** be detected/managed by `ai-shell` commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
 
 If you really want to create the container manually *and* have it be manageable by `ai-shell`, use `ai-shell instance` to print the correct derived names + labels for your workdir, then pass them to `docker run`:
 
@@ -108,11 +108,11 @@ ai-shell instance --workdir "$(pwd)"
 # Then use the printed values in your docker run. Example shape:
 docker run -d \
   --name "<container_from_ai_shell_instance>" \
-  --label com.nimzi.ai-shell.managed=true \
-  --label com.nimzi.ai-shell.schema=1 \
-  --label "com.nimzi.ai-shell.workdir=<canonical_workdir_from_ai_shell_instance>" \
-  --label "com.nimzi.ai-shell.instance=<iid_from_ai_shell_instance>" \
-  --label "com.nimzi.ai-shell.volume=<volume_from_ai_shell_instance>" \
+  --label net.datatheory.ai-shell.managed=true \
+  --label net.datatheory.ai-shell.schema=1 \
+  --label "net.datatheory.ai-shell.workdir=<canonical_workdir_from_ai_shell_instance>" \
+  --label "net.datatheory.ai-shell.instance=<iid_from_ai_shell_instance>" \
+  --label "net.datatheory.ai-shell.volume=<volume_from_ai_shell_instance>" \
   -v "$(pwd)":/work \
   -v "<volume_from_ai_shell_instance>":/root \
   -v "$HOME/.config/cursor":/root/.config/cursor:ro \

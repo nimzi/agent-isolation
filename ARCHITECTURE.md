@@ -44,8 +44,8 @@ See `internal/aishell/constants.go` and `resolveBases()` in `internal/aishell/cl
 
 Before mutating an existing container derived from a workdir, `ai-shell` verifies it is **managed**:
 
-- label `com.nimzi.ai-shell.managed=true` must exist
-- label `com.nimzi.ai-shell.workdir` must exactly match the canonical workdir
+- label `net.datatheory.ai-shell.managed=true` must exist
+- label `net.datatheory.ai-shell.workdir` must exactly match the canonical workdir
 
 This is enforced by `requireManaged()` in `internal/aishell/cli.go`.
 
@@ -53,11 +53,11 @@ This is enforced by `requireManaged()` in `internal/aishell/cli.go`.
 
 `ai-shell up` sets these labels on container creation:
 
-- `com.nimzi.ai-shell.managed=true`
-- `com.nimzi.ai-shell.schema=1`
-- `com.nimzi.ai-shell.workdir=<canonical workdir>`
-- `com.nimzi.ai-shell.instance=<iid>`
-- `com.nimzi.ai-shell.volume=<volume name>`
+- `net.datatheory.ai-shell.managed=true`
+- `net.datatheory.ai-shell.schema=1`
+- `net.datatheory.ai-shell.workdir=<canonical workdir>`
+- `net.datatheory.ai-shell.instance=<iid>`
+- `net.datatheory.ai-shell.volume=<volume name>`
 
 See `buildLabels()` in `internal/aishell/cli.go`.
 

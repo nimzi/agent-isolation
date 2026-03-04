@@ -5,7 +5,7 @@ const (
 	DefaultImage         = "ai-agent-shell"
 	DefaultVolumeBase    = "ai_agent_shell_home"
 
-	LabelNS       = "com.nimzi.ai-shell"
+	LabelNS       = "net.datatheory.ai-shell"
 	LabelManaged  = LabelNS + ".managed"
 	LabelSchema   = LabelNS + ".schema"
 	LabelInstance = LabelNS + ".instance"

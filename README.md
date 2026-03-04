@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.6**
+**Current version: 0.1.7**
 
 Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
 
@@ -231,7 +231,7 @@ ai-shell ls
 docker build -t ai-agent-shell-<iid> --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
 ```
 
-**Important:** `ai-shell` “metadata” is implemented as **container labels** (e.g. `com.nimzi.ai-shell.managed=true`).
+**Important:** `ai-shell` “metadata” is implemented as **container labels** (e.g. `net.datatheory.ai-shell.managed=true`).
 A plain `docker run ... ai-agent-shell-<iid>` creates a usable container, but it will **not** be detected/managed by `ai-shell`
 commands like `ai-shell ls/start/stop/rm` unless you add the expected labels.
 
@@ -257,10 +257,10 @@ ai-shell instance --workdir "$(pwd)"
 # Then use the printed values in your docker run. Example shape:
 docker run -d \
   --name "<container_from_ai_shell_instance>" \
-  --label com.nimzi.ai-shell.managed=true \
-  --label com.nimzi.ai-shell.schema=1 \
-  --label "com.nimzi.ai-shell.instance=<iid_from_ai_shell_instance>" \
-  --label "com.nimzi.ai-shell.volume=<volume_from_ai_shell_instance>" \
+  --label net.datatheory.ai-shell.managed=true \
+  --label net.datatheory.ai-shell.schema=1 \
+  --label "net.datatheory.ai-shell.instance=<iid_from_ai_shell_instance>" \
+  --label "net.datatheory.ai-shell.volume=<volume_from_ai_shell_instance>" \
   -v "$(pwd)":/work \
   -v "<volume_from_ai_shell_instance>":/root \
   -v "$HOME/.config/cursor":/root/.config/cursor:ro \
