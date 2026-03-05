@@ -77,6 +77,8 @@ func generateComposeYAML(iid, container, image, volume, baseImage string) string
 	sb.WriteString("# Note: workdir is discovered from the /work bind mount (..:/work),\n")
 	sb.WriteString("# so this file is portable across machines.\n")
 	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("name: ai-shell-%s\n", iid))
+	sb.WriteString("\n")
 	sb.WriteString("services:\n")
 	sb.WriteString("  ai-shell:\n")
 	sb.WriteString("    build:\n")
