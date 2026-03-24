@@ -1,0 +1,26 @@
+ARG BASE_IMAGE={{.BaseImage}}
+FROM ${BASE_IMAGE}
+
+WORKDIR /work
+USER root
+ENV HOME=/root
+ENV PATH="/root/.local/bin:${PATH}"
+ENTRYPOINT []
+
+RUN zypper -n --gpg-auto-import-keys refresh || true && \
+    zypper -n --gpg-auto-import-keys install -y \
+        bash curl ca-certificates tar gzip xz \
+        openssh git && \
+    ARCH="$(uname -m)"; \
+    case "$ARCH" in x86_64|amd64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac && \
+    GH_VER="$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | \
+        sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')" && \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_linux_${ARCH}.tar.gz" \
+        | tar xz --strip-components=1 -C /usr/local && \
+    NODE_ARCH="$(uname -m)"; \
+    case "$NODE_ARCH" in x86_64|amd64) NODE_ARCH=x64;; aarch64|arm64) NODE_ARCH=arm64;; esac && \
+    curl -fsSL "https://nodejs.org/dist/v22.22.1/node-v22.22.1-linux-${NODE_ARCH}.tar.xz" \
+        | tar -xJ --strip-components=1 -C /usr/local && \
+    zypper clean -a
+
+CMD ["sh", "-c", "while true; do sleep 3600; done"]

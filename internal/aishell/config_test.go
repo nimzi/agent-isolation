@@ -13,9 +13,10 @@ func TestConfigReadWriteTOML(t *testing.T) {
 
 	cfg := AppConfig{
 		Mode:             ModeDocker,
-		DefaultBaseImage: "python:3.12-slim",
-		BaseImageAliases: map[string]string{
-			"u24": "ubuntu:24.04",
+		DefaultBaseImage: "py",
+		BaseImageAliases: map[string]AliasEntry{
+			"u24": {Image: "ubuntu:24.04", Family: "apt"},
+			"py":  {Image: "python:3.12-slim", Family: "apt"},
 		},
 	}
 	if err := writeConfig(cfg); err != nil {
@@ -31,11 +32,12 @@ func TestConfigReadWriteTOML(t *testing.T) {
 	if got.Mode != ModeDocker {
 		t.Fatalf("expected mode=%q, got %q", ModeDocker, got.Mode)
 	}
-	if got.DefaultBaseImage != "python:3.12-slim" {
-		t.Fatalf("expected default-base-image python:3.12-slim, got %q", got.DefaultBaseImage)
+	if got.DefaultBaseImage != "py" {
+		t.Fatalf("expected default-base-image py, got %q", got.DefaultBaseImage)
 	}
-	if got.BaseImageAliases["u24"] != "ubuntu:24.04" {
-		t.Fatalf("expected alias u24=ubuntu:24.04, got %q", got.BaseImageAliases["u24"])
+	entry := got.BaseImageAliases["u24"]
+	if entry.Image != "ubuntu:24.04" || entry.Family != "apt" {
+		t.Fatalf("expected alias u24={ubuntu:24.04, apt}, got %+v", entry)
 	}
 }
 
@@ -44,10 +46,11 @@ func TestReadConfigLoose_AllowsMissingMode(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
 
-	// Write a config without mode via the same writer (allowed for config subcommands).
 	if err := writeConfig(AppConfig{
-		DefaultBaseImage: "python:3.12-slim",
-		BaseImageAliases: map[string]string{"py": "python:3.12-slim"},
+		DefaultBaseImage: "py",
+		BaseImageAliases: map[string]AliasEntry{
+			"py": {Image: "python:3.12-slim", Family: "apt"},
+		},
 	}); err != nil {
 		t.Fatalf("writeConfig: %v", err)
 	}

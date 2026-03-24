@@ -17,27 +17,44 @@ const (
 	ModePodman = "podman"
 )
 
+type AliasEntry struct {
+	Image  string `toml:"image"`
+	Family string `toml:"family"`
+}
+
+var validFamilies = map[string]bool{
+	"apt":    true,
+	"dnf":    true,
+	"zypper": true,
+	"pacman": true,
+}
+
+func validateFamily(family string) error {
+	if !validFamilies[family] {
+		return fmt.Errorf("invalid family %q: must be one of apt, dnf, zypper, pacman", family)
+	}
+	return nil
+}
+
 type AppConfig struct {
-	Mode             string            `toml:"mode"`
-	DefaultBaseImage string            `toml:"default-base-image"`
-	BaseImageAliases map[string]string `toml:"base-image-aliases"`
+	Mode             string                  `toml:"mode"`
+	DefaultBaseImage string                  `toml:"default-base-image"`
+	BaseImageAliases map[string]AliasEntry   `toml:"base-image-aliases"`
 }
 
 var aliasKeyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 func defaultAppConfig() AppConfig {
 	return AppConfig{
-		// Default to a short alias (seeded below) so users can quickly try known-good distros.
 		DefaultBaseImage: "ubu",
-		BaseImageAliases: map[string]string{
-			"ubu":  "ubuntu:24.04",
-			"deb":  "debian:12-slim",
-			"fed":  "fedora:40",
-			"suse": "opensuse/leap:15.6",
-			"tw":   "opensuse/tumbleweed",
-			"alp":  "alpine:3.19",
+		BaseImageAliases: map[string]AliasEntry{
+			"ubu":  {Image: "ubuntu:24.04", Family: "apt"},
+			"deb":  {Image: "debian:12-slim", Family: "apt"},
+			"fed":  {Image: "fedora:40", Family: "dnf"},
+			"suse": {Image: "opensuse/leap:15.6", Family: "zypper"},
+			"tw":   {Image: "opensuse/tumbleweed", Family: "zypper"},
+			"arch": {Image: "archlinux:latest", Family: "pacman"},
 		},
-		// Mode intentionally left empty; init / config set-mode will populate it.
 	}
 }
 
@@ -62,15 +79,17 @@ func validateNonEmptyImageRef(s string) error {
 	return nil
 }
 
-func validateAliases(m map[string]string) error {
+func validateAliases(m map[string]AliasEntry) error {
 	for k, v := range m {
 		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
 		if k == "" || !aliasKeyRE.MatchString(k) {
 			return fmt.Errorf("invalid alias key %q: must match %s", k, aliasKeyRE.String())
 		}
-		if err := validateNonEmptyImageRef(v); err != nil {
-			return fmt.Errorf("invalid alias value for %q: %w", k, err)
+		if err := validateNonEmptyImageRef(v.Image); err != nil {
+			return fmt.Errorf("alias %q: invalid image: %w", k, err)
+		}
+		if err := validateFamily(v.Family); err != nil {
+			return fmt.Errorf("alias %q: %w", k, err)
 		}
 	}
 	return nil
@@ -80,7 +99,7 @@ func normalizeConfig(cfg AppConfig) AppConfig {
 	cfg.Mode = strings.TrimSpace(cfg.Mode)
 	cfg.DefaultBaseImage = strings.TrimSpace(cfg.DefaultBaseImage)
 	if cfg.BaseImageAliases == nil {
-		cfg.BaseImageAliases = map[string]string{}
+		cfg.BaseImageAliases = map[string]AliasEntry{}
 	}
 	return cfg
 }

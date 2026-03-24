@@ -1,0 +1,26 @@
+ARG BASE_IMAGE={{.BaseImage}}
+FROM ${BASE_IMAGE}
+
+WORKDIR /work
+USER root
+ENV HOME=/root
+ENV PATH="/root/.local/bin:${PATH}"
+ENTRYPOINT []
+
+RUN apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        bash curl ca-certificates tar gzip xz-utils \
+        openssh-client git && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/* && \
+    ARCH="$(uname -m)"; \
+    case "$ARCH" in x86_64|amd64) ARCH=x64;; aarch64|arm64) ARCH=arm64;; esac && \
+    curl -fsSL "https://nodejs.org/dist/v22.22.1/node-v22.22.1-linux-${ARCH}.tar.xz" \
+        | tar -xJ --strip-components=1 -C /usr/local
+
+CMD ["sh", "-c", "while true; do sleep 3600; done"]

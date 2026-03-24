@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.10**
+**Current version: 0.1.13**
 
 Containerized AI agent CLIs (`cursor-agent` and `claude`) with a persistent `/root` volume and your project mounted at `/work`.
 
@@ -10,7 +10,7 @@ Containerized AI agent CLIs (`cursor-agent` and `claude`) with a persistent `/ro
 
 - **Agent CLI(s)**: `cursor-agent` and `claude` (Claude Code) installed into the persistent `/root` volume so they survive rebuilds
 - **Host auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) and Claude config (`$HOME/.claude`) into the container (read-only)
-- **Dev tools**: `git`, `gh`, `curl`, etc. (installed at runtime via `.ai-shell/bootstrap-tools.sh`)
+- **Dev tools**: `git`, `gh`, `curl`, etc. (installed at **image build time** via family-specific Dockerfile templates; `.ai-shell/bootstrap-tools.sh` is an optional empty hook for extra **runtime** installs on each `ai-shell up`)
 - **Persistent state**: `/root` is a named Docker volume; `/work` is your bind-mounted project directory
 - **Per-project customization**: each project gets its own `.ai-shell/` directory with Dockerfile and scripts
 
@@ -100,21 +100,22 @@ Recommended: create a global env file with `GH_TOKEN` (or authenticate once inte
 
 ### Tested base images
 
-The following `BASE_IMAGE` values (Docker images) have been tested with the runtime bootstrap that installs `python3`, `git`, `gh`, and `ssh` inside the container:
+The following `BASE_IMAGE` values (Docker images) have been tested with the per-family Dockerfile templates. Node.js 22 LTS is installed at build time from official binaries; both AI agents install and run successfully.
 
-| Base image | Package manager | Result | python3 | git | gh | ssh |
-|---|---:|---:|---|---|---|---|
-| `ubuntu:24.04` | apt | ✅ | 3.12.3 | 2.43.0 | 2.45.0 | OpenSSH_9.6p1 |
-| `debian:12-slim` | apt | ✅ | 3.11.2 | 2.39.5 | 2.23.0 | OpenSSH_9.2p1 |
-| `fedora:40` | dnf | ✅ | 3.12.8 | 2.49.0 | 2.65.0 | OpenSSH_9.6p1 |
-| `opensuse/leap:15.6` | zypper | ✅ | 3.6.15 | 2.51.0 | 2.78.0 | OpenSSH_9.6p1 |
-| `opensuse/tumbleweed` | zypper | ✅ | 3.13.11 | 2.52.0 | 2.83.2 | OpenSSH_10.2p1 |
-| `alpine:3.19` | apk | ✅ | 3.11.14 | 2.43.7 | 2.39.2 | OpenSSH_9.6p1 |
+| Base image | Family | Node.js | git | gh | ssh | Claude Code | Cursor Agent |
+|---|---|---|---|---|---|---|---|
+| `ubuntu:24.04` | apt | 22.22.1 | 2.43.0 | 2.88.1 | 9.6p1 | 2.1.81 ✅ | 2026.03.20 ✅ |
+| `fedora:40` | dnf | 22.22.1 | 2.49.0 | 2.65.0 | 9.6p1 | 2.1.81 ✅ | 2026.03.20 ✅ |
+| `opensuse/leap:15.6` | zypper | 22.22.1 | 2.51.0 | 2.88.1 | 9.6p1 | 2.1.81 ✅ | 2026.03.20 ✅ |
+| `opensuse/tumbleweed` | zypper | 22.22.1 | 2.53.0 | 2.88.1 | 10.2p1 | 2.1.81 ✅ | 2026.03.20 ✅ |
+| `archlinux:latest` | pacman | 22.22.1 | 2.53.0 | 2.88.1 | 10.2p1 | 2.1.81 ✅ | 2026.03.20 ✅ |
+
+**Note:** Alpine Linux is not supported. Both Cursor Agent and Claude Code bundle glibc-linked Node.js binaries that are incompatible with Alpine's musl libc.
 
 Notes:
 - **Versions vary by distro** (these are the observed versions from the test run).
-- Tumbleweed is rolling-release; versions will change frequently.
-- For some distros, `gh` may come from distro repos; if not available, the bootstrap falls back to installing `gh` from an official GitHub CLI release.
+- Tumbleweed and Arch are rolling-release; versions will change frequently.
+- For openSUSE distros, `gh` is installed from official GitHub CLI releases (not available in repos).
 
 ### Configure runtime mode (required)
 
@@ -132,11 +133,11 @@ Alternatively, configure the container runtime manually:
 ai-shell config set-mode <docker|podman>
 ```
 
-Optional (but recommended): set a default base image and define aliases:
+Optional (but recommended): set a default base image (an **alias** name) and define aliases:
 
 ```bash
-ai-shell config set-default-base-image python:3.12-slim
-ai-shell config alias set ubuntu24 ubuntu:24.04
+ai-shell config set-default-base-image ubu
+ai-shell config alias set ubuntu24 ubuntu:24.04 apt
 ai-shell config show
 ```
 
@@ -194,21 +195,21 @@ This script will:
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
 - Mount your Claude credentials from `$HOME/.claude` to `/root/.claude` (read-only)
-- Bootstrap tools inside the container (installs `python3`, `git`, `gh`, and `ssh`)
+- Run `.ai-shell/bootstrap-tools.sh` (empty by default; optional place for extra runtime setup)
 
 ### Base image selection (Dockerfile FROM)
 
 `ai-shell` builds its image from `.ai-shell/Dockerfile`. The Dockerfile requires a base image (the `FROM` image) via build-arg `BASE_IMAGE`.
 
-You can provide a base image for `up`/`recreate` either by flag or as an optional positional arg (and it may be an alias):
+`ai-shell up`, `ai-shell init`, and `ai-shell regen` accept **only alias names** defined in your global config (`base-image-aliases`). Bare image references like `ubuntu:24.04` are rejected — define an alias first, then pass that name.
+
+You can provide a base image for `up`/`recreate` either by flag or as an optional positional arg:
 
 ```bash
-# literal base image
-ai-shell up --base-image ubuntu:24.04
-
-# alias (user-defined)
-ai-shell config alias set ubuntu24 ubuntu:24.04
+ai-shell config alias set ubuntu24 ubuntu:24.04 apt
 ai-shell up ubuntu24
+# or
+ai-shell up --base-image ubuntu24
 ```
 
 
@@ -232,6 +233,7 @@ ai-shell ls
 ```bash
 # Build the image (from a project with .ai-shell/ scaffolded)
 # The image name is per-instance: ai-agent-shell-<iid>, where <iid> is shown by `ai-shell instance`
+# Use a literal image ref here; `ai-shell up` uses alias names from your global config instead.
 docker build -t ai-agent-shell-<iid> --build-arg BASE_IMAGE=python:3.12-slim .ai-shell
 ```
 
@@ -326,8 +328,8 @@ ai-shell rm --nuke --yes
 
 Each project has its own `.ai-shell/` directory (created by `ai-shell init`) containing:
 - `docker-compose.override.yml` - **edit this** to add volume mounts, environment variables, ports, services; never overwritten by ai-shell
-- `Dockerfile` - modify to change base image, add packages, etc.
-- `bootstrap-tools.sh` / `bootstrap-tools.py` - modify which packages are installed
+- `Dockerfile` - tool installation for the chosen distro **family** (`apt`, `dnf`, `zypper`, or `pacman`) is emitted between marker comments (`# === AI-SHELL AUTO-GENERATED — DO NOT EDIT BELOW THIS LINE ===` … `# === AI-SHELL AUTO-GENERATED — DO NOT EDIT ABOVE THIS LINE ===`). Put your own `RUN`/`COPY`/etc. **below** the closing marker; that user section is kept when you run `ai-shell init --force`, which only replaces the marked auto-generated block.
+- `bootstrap-tools.sh` - optional **runtime** hook (ships empty); runs on each `ai-shell up` if you need installs or setup that cannot live in the image
 - `setup-git-ssh.sh` - customize SSH/git setup
 
 **Note:** `docker-compose.yml` is auto-generated — do not edit it by hand. Use `docker-compose.override.yml` for customizations. Both files are automatically merged by `docker compose` / `podman-compose`.
@@ -335,7 +337,7 @@ Each project has its own `.ai-shell/` directory (created by `ai-shell init`) con
 To regenerate `docker-compose.yml` with a new random instance ID (e.g. to get a fresh container/volume name):
 
 ```bash
-ai-shell regen --base-image ubuntu:24.04
+ai-shell regen --base-image ubuntu24
 ```
 
 You can commit `.ai-shell/` to version control so team members get the same container setup.
@@ -418,13 +420,15 @@ Where it writes (defaults):
 - `config.toml`: `$XDG_CONFIG_HOME/ai-shell/config.toml` or `~/.config/ai-shell/config.toml`
 - `.env`: `$XDG_CONFIG_HOME/ai-shell/.env` or `~/.config/ai-shell/.env`
 
-Seeded base image aliases:
-- `ubu` → `ubuntu:24.04`
-- `deb` → `debian:12-slim`
-- `fed` → `fedora:40`
-- `suse` → `opensuse/leap:15.6`
-- `tw` → `opensuse/tumbleweed`
-- `alp` → `alpine:3.19`
+Seeded base image aliases (each maps an **image** and a **family** used to pick the Dockerfile template: `apt`, `dnf`, `zypper`, or `pacman`):
+- `ubu` → `ubuntu:24.04` (apt)
+- `deb` → `debian:12-slim` (apt)
+- `fed` → `fedora:40` (dnf)
+- `suse` → `opensuse/leap:15.6` (zypper)
+- `tw` → `opensuse/tumbleweed` (zypper)
+- `arch` → `archlinux:latest` (pacman)
+
+If you have an older `config.toml` from before aliases included a `family` field, it will not parse; run `ai-shell setup` again to regenerate configuration.
 
 `GH_TOKEN` behavior:
 - Interactive: choose to (1) run a host command (default `gh auth token`), (2) enter a token manually (input hidden), or (3) skip.
@@ -436,7 +440,7 @@ Seeded base image aliases:
 
 - `.ai-shell/Dockerfile`
 - `.ai-shell/docker-compose.yml`
-- `.ai-shell/bootstrap-tools.sh`, `.ai-shell/bootstrap-tools.py`
+- `.ai-shell/bootstrap-tools.sh` (empty runtime hook)
 - `.ai-shell/setup-git-ssh.sh`
 - `.ai-shell/README.md`
 
@@ -462,7 +466,7 @@ Environment variables (can be set in `.env` or as container env vars):
 
 ## Roadmap
 
-- **Nushell installation**: automatically install Nushell (`nu`) in the container (likely via the existing runtime bootstrap flow).
+- **Nushell installation**: automatically install Nushell (`nu`) in the container (likely via Dockerfile customization or the optional `bootstrap-tools.sh` hook).
 - **Nushell OpenAI plugins**: automatically install/configure Nushell plugins like `gpt2099.nu` and `nu.ai`.
 - **OpenAI credentials**: provide a first-class way to configure OpenAI credentials (for example `OPENAI_API_KEY`) for tools that need them, ideally integrating with the existing env-file discovery (`$XDG_CONFIG_HOME/ai-shell/.env` or `$HOME/.config/ai-shell/.env`).
 - **Mistral via Continue (optional)**: add guidance and/or integration work to connect Mistral through [Continue](https://www.continue.dev); it should be a good option for **OCaml**-focused work.

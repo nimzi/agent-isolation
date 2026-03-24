@@ -6,7 +6,7 @@ This document summarizes the **internal invariants** and **runtime contract** of
 
 `ai-shell` manages **one container + one persistent `/root` volume per workdir**. The project workdir is bind-mounted to `/work`. Host Cursor credentials are mounted **read-only** into `/root/.config/cursor`. Host Claude credentials are mounted **read-only** into `/root/.claude`.
 
-The container image is built from `.ai-shell/Dockerfile`. The container runs as a long-lived “toolbox” (`tail -f /dev/null`) that you enter via `ai-shell enter`.
+The container image is built from `.ai-shell/Dockerfile`, which is rendered from a **family-specific template** (`apt`, `dnf`, `zypper`, or `apk`) embedded in the `ai-shell` binary. The chosen family comes from the **base image alias** in global config (each alias maps to a Docker image ref plus a family). Core packages are installed at **image build time** via that template. The container runs as a long-lived “toolbox” (`tail -f /dev/null`) that you enter via `ai-shell enter`.
 
 ## Key invariants (identity + safety)
 
@@ -76,8 +76,9 @@ Mechanics (`internal/aishell/config.go`, `internal/aishell/env.go`):
 
 - Config file format: TOML (`config.toml`) containing at least:
   - `mode` (`docker` or `podman`)
-  - `default-base-image` (Dockerfile `FROM` image; passed as build-arg `BASE_IMAGE`)
-  - `base-image-aliases` (map of alias → docker image reference)
+  - `default-base-image` (an **alias name** that must exist under `base-image-aliases`; used when `init` / `up` / `regen` do not pass another alias)
+  - `base-image-aliases` (map of alias → `{ image = "...", family = "apt|dnf|zypper|apk" }`; each alias’s `family` selects which embedded Dockerfile template is used)
+- Older `config.toml` files that used the previous alias shape (`alias → bare image string`) are **not** migrated automatically; replace the file with the new format.
 - Config file path is independent from env-file discovery:
   - `$XDG_CONFIG_HOME/ai-shell/config.toml` (preferred)
   - `~/.config/ai-shell/config.toml` (fallback)
@@ -133,16 +134,22 @@ Entrypoint: `cmd/ai-shell/main.go` calls `aishell.Main()`, which constructs the 
 - **Preconditions**: none (config command bypasses `PersistentPreRunE`)
 - **Side effects**: writes `config.toml` with `0600` permissions
 
+### `config alias set <alias> <image> <family>`
+
+- **Inputs**: three args: alias key, Docker image reference, and package-manager family (`apt`, `dnf`, `zypper`, or `apk`).
+- **Side effects**: updates `base-image-aliases` in `config.toml`.
+
 ### `init`
 
-- Scaffolds `.ai-shell/` with all files listed above.
+- Scaffolds `.ai-shell/` with the files listed under “Packaging / asset discovery”.
+- The base image must be given as an **alias** (`--base-image` or the configured default); bare image refs are rejected (`resolveBaseImage` / `chooseBaseImage` only accept keys present in `base-image-aliases`).
 - `docker-compose.override.yml` is written only if it does not already exist (never overwritten even with `--force`).
-- `--force` overwrites all other files.
+- `--force` overwrites managed project files, but the **Dockerfile** is updated in a marker-aware way: if both AI-SHELL marker lines are present, only the auto-generated block between them is replaced and anything **below** the closing marker is kept. If markers are missing, `init --force` overwrites the whole Dockerfile and prints a warning.
 
 ### `regen`
 
 - Rewrites only `docker-compose.yml` with a new random iid.
-- `--base-image <img>` is **required** (no default) to prevent accidental loss of the previously chosen base image default.
+- `--base-image <alias>` is **required** (no default); the value must be a defined alias (resolved to the real image for the compose build-arg default).
 - Collision-checks the new iid against all existing managed container iids; retries until unique.
 - Never touches `docker-compose.override.yml`, `Dockerfile`, scripts, or `README.md`.
 
@@ -155,7 +162,7 @@ Inputs:
 - `--workdir` (instance identity; default cwd)
 - `--cursor-config` (host cursor dir; default `~/.config/cursor`)
 - `--env-file` (optional env-file injection; see “Global env file resolution”)
-- `--base-image` or optional positional `BASE_IMAGE_OR_ALIAS` (Dockerfile `FROM` image; may be an alias)
+- `--base-image` or optional positional `ALIAS` (must be a configured alias name, not a bare image ref)
 - `--no-build`
 - `--no-install` (skip all agent installs)
 - `--no-install-cursor` (skip cursor-agent only)
@@ -177,16 +184,8 @@ Main behavior (`newUpCmd()` in `internal/aishell/cli.go`):
 - Ensure host cursor dir exists (`ensureCursorConfigDir()` creates it if missing)
 - Resolve env-file args and print a warning if none/disabled
 - If `--recreate` and container exists: stop+remove the container
-- If not `--no-build`: build image (`docker build -t <image> --build-arg BASE_IMAGE=<resolved> .`)
-- If container does **not** exist: run it detached with:
-  - labels (managed/workdir/iid/volume)
-  - mounts:
-    - `<workdir>:/work` (bind)
-    - `<volume>:/root` (named volume)
-    - `<cursorDir>:/root/.config/cursor:ro` (read-only bind)
-    - `<claudeDir>:/root/.claude:ro` (read-only bind)
-  - `--env-file <resolved>` if provided/found
-  - image name
+- `docker compose up` (with `--build` unless `--no-build`): when building, resolve `BASE_IMAGE` from the chosen **alias** via `chooseBaseImage` / `resolveBaseImage` (bare image refs are rejected) and pass it as a build-arg; the checked-in Dockerfile was generated for that alias’s family at `init` time. The running service gets labels (managed/workdir/iid/volume), bind mounts (`<workdir>:/work`, `<cursorDir>:/root/.config/cursor:ro`, `<claudeDir>:/root/.claude:ro`), the named `<volume>:/root`, optional `--env-file` injection, and the project image.
+- After the container is up: run `/work/.ai-shell/bootstrap-tools.sh` (embedded as an **empty** hook; add commands for optional runtime-only steps)
 - Install `cursor-agent` unless `--no-install` or `--no-install-cursor`:
   - checks `command -v cursor-agent`
   - if missing: runs `curl https://cursor.com/install -fsSL | bash`
@@ -283,20 +282,30 @@ Destructive cleanup:
 
 ## Container image + bootstrap script
 
-### `.ai-shell/Dockerfile`
+### Embedded Dockerfile templates (`export.go`)
 
-The Dockerfile is minimal - it just sets up the base image and working directory. Scripts are accessed from the mounted workdir at `/work/.ai-shell/`.
+`internal/aishell/export.go` embeds four templates under `internal/aishell/scripts/`:
 
-Default base: `ubuntu:24.04` (configurable via `--base-image` or config).
+- `Dockerfile.apt.tmpl`, `Dockerfile.dnf.tmpl`, `Dockerfile.zypper.tmpl`, `Dockerfile.apk.tmpl`
 
-Important: **`cursor-agent` and `claude` are intentionally NOT installed at image build time** because `/root` is a named volume; installing after container creation ensures they persist in the `/root` volume.
+`generateDockerfile(baseImage, family string)` picks the template by `family`, renders it with `text/template` (data includes the resolved `FROM` image), and wraps the result with marker lines:
 
-### `.ai-shell/bootstrap-tools.sh` / `.ai-shell/bootstrap-tools.py`
+- `# === AI-SHELL AUTO-GENERATED — DO NOT EDIT BELOW THIS LINE ===`
+- `# === AI-SHELL AUTO-GENERATED — DO NOT EDIT ABOVE THIS LINE ===`
 
-Installs common tools at runtime:
-- `bash`, `ca-certificates`, `curl`, `git`, `gh`, `ssh`
+`exportFiles(outputDir, workdir, cfg, baseImage, family string, force bool)` writes the project `.ai-shell/` tree. For the Dockerfile, `spliceDockerfile(existing, newAutoSection)` replaces only the marked block when `init --force` refreshes an existing file, preserving user additions **after** the closing marker. On first init (no markers yet), the file is written as auto-generated content plus a small default “customize below” stub from `defaultCustomSection()`.
 
-Supports multiple package managers: apt, dnf, yum, zypper, pacman, apk.
+Package-manager–appropriate base packages (e.g. `bash`, `curl`, `git`, `gh`, OpenSSH client, CA certs) are installed in the **auto-generated** layer at **build time**. The alias’s `family` must match the base image’s package manager; otherwise the build is misconfigured.
+
+### `.ai-shell/Dockerfile` (in the project)
+
+The committed Dockerfile is the rendered template section (between markers) plus optional user lines below the closing marker. The effective `FROM` / package installs come from the alias’s `family` at `ai-shell init` time.
+
+Important: **`cursor-agent` and `claude` remain intentionally NOT installed in the Dockerfile** because `/root` is a named volume; they are installed on `ai-shell up` (unless skipped with flags) so they persist under `/root`.
+
+### `.ai-shell/bootstrap-tools.sh`
+
+Shipped as an **empty** customization hook (embedded from `scripts/bootstrap-tools.sh`). It is executed on every successful `ai-shell up` after the container is up; use it only for steps that must run at **container runtime** rather than image build. `bootstrap-tools.py` was removed.
 
 ### `/work/.ai-shell/setup-git-ssh.sh`
 
@@ -312,21 +321,25 @@ Bootstrap GitHub SSH auth inside the container:
 
 ## Packaging / asset discovery
 
-Scripts are embedded in the `ai-shell` binary via Go's `//go:embed` directive (see `internal/aishell/scripts/`).
+Embedded assets are pulled into the `ai-shell` binary via `//go:embed` in `internal/aishell/export.go`:
+
+- `scripts/Dockerfile.apt.tmpl`, `Dockerfile.dnf.tmpl`, `Dockerfile.zypper.tmpl`, `Dockerfile.apk.tmpl`
+- `scripts/bootstrap-tools.sh` (empty hook)
+- `scripts/setup-git-ssh.sh`
 
 `ai-shell setup` creates global config (`~/.config/ai-shell/config.toml` and `.env`).
 
 `ai-shell init` scaffolds `.ai-shell/` in the workdir with:
-- `Dockerfile`
+- `Dockerfile` (marker-bounded auto-generated section + optional user tail)
 - `docker-compose.yml` (auto-generated; never edit by hand)
 - `docker-compose.override.yml` (user-editable; never overwritten by ai-shell)
-- `bootstrap-tools.sh`, `bootstrap-tools.py`
+- `bootstrap-tools.sh`
 - `setup-git-ssh.sh`
 - `README.md`
 
 `docker-compose.yml` and `docker-compose.override.yml` are automatically merged by `docker compose` / `podman-compose` — no `-f` flags needed.
 
-`ai-shell regen --base-image <img>` regenerates only `docker-compose.yml` with a new random iid (collision-checked against existing managed containers), leaving all other files intact.
+`ai-shell regen --base-image <alias>` regenerates only `docker-compose.yml` with a new random iid (collision-checked against existing managed containers), leaving all other files intact.
 
 `ai-shell up` requires `.ai-shell/` to exist and uses it as the Docker build context.
 
@@ -337,6 +350,8 @@ Scripts are embedded in the `ai-shell` binary via Go's `//go:embed` directive (s
 ## Known risk areas / sharp edges
 
 - External installer URLs: `curl https://cursor.com/install | bash` and `curl https://claude.ai/install.sh | bash` may change/break; `README.md` documents manual fallbacks.
-- Network restrictions (e.g. port 22 blocked) can cause SSH setup failures; `up` tries to install agent CLIs first so the container remains useful.
+- Network restrictions (e.g. port 22 blocked) can cause SSH setup failures; `up` runs bootstrap (empty by default), then tries to install agent CLIs so the container remains useful even when SSH is blocked.
+- Dockerfile without the AI-SHELL marker pair: `init --force` cannot splice and replaces the **entire** file (with a warning), discarding any previous Dockerfile content.
+- Wrong `family` for an alias (e.g. `apk` family with a Debian image) yields a broken or surprising image build; families must match the base image’s package manager.
 - Secret redaction is deliberately simple (`TOKEN=`/`KEY=` line patterns); avoid printing env-file contents in errors elsewhere.
 

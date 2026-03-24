@@ -5,38 +5,37 @@ import (
 	"strings"
 )
 
-// resolveBaseImage resolves an input that may be an alias key.
-// If input matches a user-defined alias in cfg, the mapped image ref is returned.
-// Otherwise the input is treated as a literal image reference.
-func resolveBaseImage(input string, cfg AppConfig) (resolved string, usedAlias bool, err error) {
+// resolveBaseImage resolves an alias key to its image ref and family.
+// Non-alias inputs are rejected — every base image must be defined as an alias.
+func resolveBaseImage(input string, cfg AppConfig) (image string, family string, err error) {
 	input = strings.TrimSpace(input)
-	if err := validateNonEmptyImageRef(input); err != nil {
-		return "", false, err
+	if input == "" {
+		return "", "", fmt.Errorf("base image must not be empty")
 	}
 	if cfg.BaseImageAliases != nil {
-		if v, ok := cfg.BaseImageAliases[input]; ok {
-			v = strings.TrimSpace(v)
-			if err := validateNonEmptyImageRef(v); err != nil {
-				return "", false, fmt.Errorf("alias %q maps to invalid image reference: %w", input, err)
+		if entry, ok := cfg.BaseImageAliases[input]; ok {
+			img := strings.TrimSpace(entry.Image)
+			if err := validateNonEmptyImageRef(img); err != nil {
+				return "", "", fmt.Errorf("alias %q maps to invalid image reference: %w", input, err)
 			}
-			return v, true, nil
+			return img, entry.Family, nil
 		}
 	}
-	return input, false, nil
+	return "", "", fmt.Errorf("unknown alias %q: define it first with: ai-shell config alias set %s <image> <family>", input, input)
 }
 
 // chooseBaseImage selects the base image (docker/Dockerfile FROM) from (flag,args,config).
 //
 // Precedence:
 // - explicit flag (--base-image)
-// - positional arg (up [BASE_IMAGE_OR_ALIAS])
+// - positional arg (up [ALIAS])
 // - config defaultBaseImage
 //
-// It resolves aliases using cfg.BaseImageAliases.
-func chooseBaseImage(flagVal string, args []string, cfg AppConfig) (base string, source string, usedAlias bool, err error) {
+// All inputs must be alias names defined in cfg.BaseImageAliases.
+func chooseBaseImage(flagVal string, args []string, cfg AppConfig) (base string, family string, source string, err error) {
 	flagVal = strings.TrimSpace(flagVal)
 	if flagVal != "" && len(args) > 0 {
-		return "", "", false, fmt.Errorf("base image specified twice (positional arg and --base-image)")
+		return "", "", "", fmt.Errorf("base image specified twice (positional arg and --base-image)")
 	}
 
 	raw := ""
@@ -54,12 +53,12 @@ func chooseBaseImage(flagVal string, args []string, cfg AppConfig) (base string,
 	}
 
 	if raw == "" {
-		return "", "", false, fmt.Errorf("no base image specified; set a default with: ai-shell config set-default-base-image <image>")
+		return "", "", "", fmt.Errorf("no base image specified; set a default with: ai-shell config set-default-base-image <alias>")
 	}
 
-	res, aliased, err := resolveBaseImage(raw, cfg)
+	img, fam, err := resolveBaseImage(raw, cfg)
 	if err != nil {
-		return "", "", false, err
+		return "", "", "", err
 	}
-	return res, source, aliased, nil
+	return img, fam, source, nil
 }

@@ -429,24 +429,22 @@ func runInit(opts initOptions) error {
 
 	aiShellDir := filepath.Join(workdir, ".ai-shell")
 
-	// Resolve base image (and expand aliases)
-	baseImage := opts.BaseImage
-	if baseImage == "" {
-		baseImage = cfg.DefaultBaseImage
+	// Resolve base image alias
+	aliasKey := opts.BaseImage
+	if aliasKey == "" {
+		aliasKey = cfg.DefaultBaseImage
 	}
-	if baseImage == "" {
-		baseImage = "ubuntu:24.04"
+	if aliasKey == "" {
+		return fmt.Errorf("no base image specified; set a default with: ai-shell config set-default-base-image <alias>")
 	}
-	// Resolve alias to actual image reference
-	resolvedImage, _, err := resolveBaseImage(baseImage, cfg)
+	resolvedImage, family, err := resolveBaseImage(aliasKey, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to resolve base image: %w", err)
 	}
-	baseImage = resolvedImage
 
 	// Use exportFiles to scaffold .ai-shell/
 	cliCfg := &Config{Workdir: workdir}
-	if err := exportFiles(aiShellDir, workdir, cliCfg, baseImage, opts.Force); err != nil {
+	if err := exportFiles(aiShellDir, workdir, cliCfg, resolvedImage, family, opts.Force); err != nil {
 		return fmt.Errorf("failed to scaffold .ai-shell/: %w", err)
 	}
 
@@ -471,7 +469,7 @@ func runRegen(cfg *Config, baseImage string) error {
 		return fmt.Errorf(".ai-shell/ does not exist in %s\nRun 'ai-shell init' first", workdir)
 	}
 
-	// Resolve base image alias if needed
+	// Resolve base image alias
 	appCfg, err := readConfig()
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
@@ -480,6 +478,7 @@ func runRegen(cfg *Config, baseImage string) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve base image: %w", err)
 	}
+	// regen only rewrites docker-compose.yml, not the Dockerfile, so family is not needed here
 
 	// Collect existing managed iids to avoid collisions
 	runtimeMode := getRuntimeMode()
