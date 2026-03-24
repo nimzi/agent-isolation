@@ -171,11 +171,45 @@ func warnCursorAgentInstallFailure(err error) {
 Reason: %v
 
 Next steps:
-  - Skip auto-install on future runs: ai-shell up --no-install
+  - Skip auto-install on future runs: ai-shell up --no-install-cursor
   - Install manually:
       ai-shell enter
       # inside the container, follow Cursor's current official instructions
   - If the installer requires Node.js/npm, install node inside the container with your distro package manager.
+
+`, err)
+}
+
+func installClaudeCodeIfMissing(d Docker, container string) error {
+	dLong := d
+	dLong.Timeout = 15 * time.Minute
+
+	_, err := dLong.ExecCapture(container, "command -v claude >/dev/null 2>&1")
+	if err == nil {
+		return nil
+	}
+	_, err = dLong.ExecCapture(container, "curl -fsSL https://claude.ai/install.sh | bash")
+	if err != nil {
+		return fmt.Errorf("install claude code: %w", err)
+	}
+	_, _ = dLong.ExecCapture(container, `grep -q "\.local/bin" ~/.bashrc 2>/dev/null || echo "export PATH=\"$HOME/.local/bin:$PATH\"" >> ~/.bashrc`)
+	return nil
+}
+
+func warnClaudeCodeInstallFailure(err error) {
+	if err == nil {
+		return
+	}
+	warnf(`Warning: claude code auto-install failed, but the container is still usable.
+
+Reason: %v
+
+Next steps:
+  - Skip auto-install on future runs: ai-shell up --no-install-claude
+  - Install manually:
+      ai-shell enter
+      # inside the container:
+      curl -fsSL https://claude.ai/install.sh | bash
 
 `, err)
 }
@@ -196,6 +230,8 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 	var envFile string
 	var noBuild bool
 	var noInstall bool
+	var noInstallCursor bool
+	var noInstallClaude bool
 	var baseImage string
 	var recreate bool
 
@@ -305,10 +341,17 @@ func newUpCmd(cfg *Config, aliasRecreate bool) *cobra.Command {
 				return fmt.Errorf("bootstrap tools: %w", err)
 			}
 
-			// Install cursor-agent
-			if !noInstall {
+			// Install agent CLIs
+			skipCursor := noInstall || noInstallCursor
+			skipClaude := noInstall || noInstallClaude
+			if !skipCursor {
 				if err := installCursorAgentIfMissing(d, container); err != nil {
 					warnCursorAgentInstallFailure(err)
+				}
+			}
+			if !skipClaude {
+				if err := installClaudeCodeIfMissing(d, container); err != nil {
+					warnClaudeCodeInstallFailure(err)
 				}
 			}
 
@@ -401,7 +444,9 @@ Output from setup-git-ssh.sh:
 	cmd.Flags().StringVar(&envFile, "env-file", "", "Env file path. Resolution: --env-file, AI_SHELL_ENV_FILE, then $XDG_CONFIG_HOME/ai-shell/.env or ~/.config/ai-shell/.env if present. Optional. Set to empty to disable.")
 	cmd.Flags().StringVar(&baseImage, "base-image", "", "Base image for Dockerfile FROM (may be an alias defined via `ai-shell config alias`). Can also be provided as an optional positional argument.")
 	cmd.Flags().BoolVar(&noBuild, "no-build", false, "Skip docker build")
-	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip installing cursor-agent")
+	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip installing all agent CLIs (cursor-agent, claude)")
+	cmd.Flags().BoolVar(&noInstallCursor, "no-install-cursor", false, "Skip installing cursor-agent")
+	cmd.Flags().BoolVar(&noInstallClaude, "no-install-claude", false, "Skip installing claude code")
 	if !aliasRecreate {
 		cmd.Flags().BoolVar(&recreate, "recreate", false, "Stop/remove and recreate the container if it already exists")
 	}
@@ -631,7 +676,7 @@ func newEnterCmd(cfg *Config) *cobra.Command {
 func newCheckCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
 		Use:   "check [TARGET]",
-		Short: "Sanity-check cursor-agent + mounts (and optional gh auth)",
+		Short: "Sanity-check agent CLIs + mounts (cursor-agent, claude, gh auth)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d, err := NewDocker(getRuntimeMode())
@@ -669,14 +714,28 @@ func newCheckCmd(cfg *Config) *cobra.Command {
 			}
 
 			if _, err := d.ExecCapture(container, "command -v cursor-agent && cursor-agent --help | head -30"); err != nil {
-				return fmt.Errorf("cursor-agent not found (run: ai-shell up)")
+				warnf("Warning: cursor-agent not found (run: ai-shell up)\n")
+			} else {
+				fmt.Println("OK: cursor-agent is installed.")
 			}
-			fmt.Println("OK: cursor-agent is installed.")
 
 			if _, err := d.ExecCapture(container, "ls -la /root/.config/cursor/ 2>/dev/null | head -50"); err != nil {
-				return errors.New("ERROR: /root/.config/cursor is missing; ensure host Cursor is installed/signed in")
+				warnf("Warning: /root/.config/cursor is missing; ensure host Cursor is installed/signed in\n")
+			} else {
+				fmt.Println("OK: /root/.config/cursor is mounted.")
 			}
-			fmt.Println("OK: /root/.config/cursor is mounted.")
+
+			if _, err := d.ExecCapture(container, "command -v claude && claude --version 2>/dev/null | head -5"); err != nil {
+				warnf("Warning: claude code not found (run: ai-shell up)\n")
+			} else {
+				fmt.Println("OK: claude code is installed.")
+			}
+
+			if _, err := d.ExecCapture(container, "ls -la /root/.claude/ 2>/dev/null | head -50"); err != nil {
+				warnf("Warning: /root/.claude is missing; authenticate with 'claude' inside the container or mount host ~/.claude\n")
+			} else {
+				fmt.Println("OK: /root/.claude is present.")
+			}
 
 			out, _ := d.ExecCapture(container, "gh auth status 2>&1 | head -50")
 			out = redactSecrets(out)

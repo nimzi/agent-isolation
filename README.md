@@ -2,14 +2,14 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.9**
+**Current version: 0.1.10**
 
-Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/root` volume and your project mounted at `/work`.
+Containerized AI agent CLIs (`cursor-agent` and `claude`) with a persistent `/root` volume and your project mounted at `/work`.
 
 ## What you get
 
-- **Agent CLI(s)**: installed into the persistent `/root` volume so they survive rebuilds
-- **Host Cursor auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) into the container
+- **Agent CLI(s)**: `cursor-agent` and `claude` (Claude Code) installed into the persistent `/root` volume so they survive rebuilds
+- **Host auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) and Claude config (`$HOME/.claude`) into the container (read-only)
 - **Dev tools**: `git`, `gh`, `curl`, etc. (installed at runtime via `.ai-shell/bootstrap-tools.sh`)
 - **Persistent state**: `/root` is a named Docker volume; `/work` is your bind-mounted project directory
 - **Per-project customization**: each project gets its own `.ai-shell/` directory with Dockerfile and scripts
@@ -18,43 +18,46 @@ Containerized AI agent CLIs (starting with `cursor-agent`) with a persistent `/r
 
 **Host OS note:** this setup is currently documented for a **Linux host** (for example, it mounts host Cursor credentials from `~/.config/cursor`). So far, `ai-shell` has only been tested on **Ubuntu 24.04**.
 
-### 1. Prerequisite (for Cursor): Cursor installed + signed in (on the host)
+### 1. Prerequisites: Agent CLIs (Cursor and/or Claude Code)
 
-Cursor Agent CLI reads credentials from your host’s Cursor installation. Make sure you’re signed in on the host and that `$HOME/.config/cursor` is populated.
+#### Cursor Agent CLI
 
-### 1a. Cursor Agent CLI install: what to do if the download method changes
+Cursor Agent CLI reads credentials from your host's Cursor installation. Make sure you're signed in on the host and that `$HOME/.config/cursor` is populated.
 
-On first container creation, `ai-shell up` tries to install `cursor-agent` inside the container automatically (best-effort). Today it does this by running Cursor’s official installer command inside the container:
+On first container creation, `ai-shell up` tries to install `cursor-agent` inside the container automatically (best-effort) by running:
 
 ```bash
 curl https://cursor.com/install -fsSL | bash
 ```
 
-Because Cursor controls that URL/script, it may change in the future. If the install step fails, `ai-shell up` will warn (but still succeeds). You can use this workflow:
+If the install step fails, `ai-shell up` will warn (but still succeeds). To skip: `ai-shell up --no-install-cursor`.
 
-- **Create/start the container without installing the agent**:
+#### Claude Code CLI
+
+Claude Code CLI reads credentials from your host's `~/.claude` directory. If you have Claude Code installed and authenticated on the host, credentials are mounted read-only into the container.
+
+On first container creation, `ai-shell up` tries to install `claude` inside the container automatically (best-effort) by running:
 
 ```bash
-ai-shell up --no-install
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-- **Enter the container**:
+If the install step fails, `ai-shell up` will warn (but still succeeds). To skip: `ai-shell up --no-install-claude`.
+
+#### Manual agent install fallback
+
+If auto-install fails for either agent, you can install manually:
 
 ```bash
+ai-shell up --no-install    # skip all agent installs
 ai-shell enter
-```
-
-- **Install `cursor-agent` manually using the current official instructions**:
-  - Follow the latest instructions from Cursor (they may provide a different URL, package, or command).
-  - After installing, make sure the agent is on `PATH` (many installers place binaries in `~/.local/bin`):
-
-```bash
+# inside the container, install manually:
+curl https://cursor.com/install -fsSL | bash       # cursor-agent
+curl -fsSL https://claude.ai/install.sh | bash      # claude code
 export PATH="$HOME/.local/bin:$PATH"
-command -v cursor-agent
-cursor-agent --help
 ```
 
-- **Persistency note**: the container’s `/root` is a named volume, so once `cursor-agent` is installed inside the container, it should persist across rebuilds/recreates of the container.
+The container's `/root` is a named volume, so once agents are installed they persist across rebuilds/recreates.
 
 ### 2. (Optional) GitHub CLI auth via `GH_TOKEN`
 
@@ -190,6 +193,7 @@ This script will:
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
+- Mount your Claude credentials from `$HOME/.claude` to `/root/.claude` (read-only)
 - Bootstrap tools inside the container (installs `python3`, `git`, `gh`, and `ssh`)
 
 ### Base image selection (Dockerfile FROM)
@@ -264,6 +268,7 @@ docker run -d \
   -v "$(pwd)":/work \
   -v "<volume_from_ai_shell_instance>":/root \
   -v "$HOME/.config/cursor":/root/.config/cursor:ro \
+  -v "$HOME/.claude":/root/.claude:ro \
   --env-file "$HOME/.config/ai-shell/.env" \
   ai-agent-shell-<iid>
 ```
@@ -358,6 +363,7 @@ ai-shell ls
 ai-shell enter <short>
 # then inside the container:
 cursor-agent --help
+claude --version
 ```
 
 ## Authentication
@@ -367,6 +373,12 @@ cursor-agent --help
 - Credentials mounted from `$HOME/.config/cursor` on host to `/root/.config/cursor` in container
 - Requires Cursor to be installed and configured on your host machine
 - Credentials are read-only mounted (changes in container don't affect host)
+
+### Claude Code CLI
+- Credentials mounted from `$HOME/.claude` on host to `/root/.claude` in container (read-only)
+- If you have Claude Code installed and authenticated on the host, it works automatically
+- Alternatively, authenticate inside the container: `claude` will prompt for login on first use
+- You can also set `ANTHROPIC_API_KEY` in your env file for API-key-based auth
 
 ### Git + GitHub CLI (inside container)
 

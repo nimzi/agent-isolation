@@ -4,7 +4,7 @@ This document summarizes the **internal invariants** and **runtime contract** of
 
 ## What `ai-shell` is
 
-`ai-shell` manages **one container + one persistent `/root` volume per workdir**. The project workdir is bind-mounted to `/work`. Host Cursor credentials are mounted **read-only** into `/root/.config/cursor`.
+`ai-shell` manages **one container + one persistent `/root` volume per workdir**. The project workdir is bind-mounted to `/work`. Host Cursor credentials are mounted **read-only** into `/root/.config/cursor`. Host Claude credentials are mounted **read-only** into `/root/.claude`.
 
 The container image is built from `.ai-shell/Dockerfile`. The container runs as a long-lived “toolbox” (`tail -f /dev/null`) that you enter via `ai-shell enter`.
 
@@ -157,7 +157,9 @@ Inputs:
 - `--env-file` (optional env-file injection; see “Global env file resolution”)
 - `--base-image` or optional positional `BASE_IMAGE_OR_ALIAS` (Dockerfile `FROM` image; may be an alias)
 - `--no-build`
-- `--no-install`
+- `--no-install` (skip all agent installs)
+- `--no-install-cursor` (skip cursor-agent only)
+- `--no-install-claude` (skip claude code only)
 - `--recreate` (or `recreate` command)
 
 Preconditions:
@@ -182,11 +184,16 @@ Main behavior (`newUpCmd()` in `internal/aishell/cli.go`):
     - `<workdir>:/work` (bind)
     - `<volume>:/root` (named volume)
     - `<cursorDir>:/root/.config/cursor:ro` (read-only bind)
+    - `<claudeDir>:/root/.claude:ro` (read-only bind)
   - `--env-file <resolved>` if provided/found
   - image name
-- Install `cursor-agent` early unless `--no-install`:
+- Install `cursor-agent` unless `--no-install` or `--no-install-cursor`:
   - checks `command -v cursor-agent`
   - if missing: runs `curl https://cursor.com/install -fsSL | bash`
+  - appends `~/.local/bin` to `~/.bashrc` (best-effort)
+- Install `claude` (Claude Code) unless `--no-install` or `--no-install-claude`:
+  - checks `command -v claude`
+  - if missing: runs `curl -fsSL https://claude.ai/install.sh | bash`
   - appends `~/.local/bin` to `~/.bashrc` (best-effort)
 - Run `/work/.ai-shell/setup-git-ssh.sh`:
   - **If an env file was injected**: “fail fast” (errors if ssh setup fails) with redacted, truncated output
@@ -197,7 +204,7 @@ Main behavior (`newUpCmd()` in `internal/aishell/cli.go`):
   - `requireManaged()` guardrail
   - start if needed
   - if SSH setup appears incomplete, retry it when `gh auth status` passes; otherwise warn
-- At the end: re-check/install `cursor-agent` again unless `--no-install`
+- At the end: re-check/install `cursor-agent` and `claude` again unless skipped via flags
 
 ### `start [TARGET]` / `stop [TARGET]`
 
@@ -225,6 +232,8 @@ Sanity checks (must be running):
 
 - `cursor-agent` exists and responds to `--help`
 - `/root/.config/cursor` mount is present/readable
+- `claude` (Claude Code) exists and responds to `--version`
+- `/root/.claude` is present/readable
 - prints `gh auth status` output (redacting simple `TOKEN=`/`KEY=` patterns)
 
 ### `instance`
@@ -280,7 +289,7 @@ The Dockerfile is minimal - it just sets up the base image and working directory
 
 Default base: `ubuntu:24.04` (configurable via `--base-image` or config).
 
-Important: **`cursor-agent` is intentionally NOT installed at image build time** because `/root` is a named volume; installing after container creation ensures it persists in the `/root` volume.
+Important: **`cursor-agent` and `claude` are intentionally NOT installed at image build time** because `/root` is a named volume; installing after container creation ensures they persist in the `/root` volume.
 
 ### `.ai-shell/bootstrap-tools.sh` / `.ai-shell/bootstrap-tools.py`
 
@@ -327,7 +336,7 @@ Scripts are embedded in the `ai-shell` binary via Go's `//go:embed` directive (s
 
 ## Known risk areas / sharp edges
 
-- External installer URL: `curl https://cursor.com/install | bash` may change/break; `README.md` documents a manual fallback.
-- Network restrictions (e.g. port 22 blocked) can cause SSH setup failures; `up` tries to install `cursor-agent` first so the container remains useful.
+- External installer URLs: `curl https://cursor.com/install | bash` and `curl https://claude.ai/install.sh | bash` may change/break; `README.md` documents manual fallbacks.
+- Network restrictions (e.g. port 22 blocked) can cause SSH setup failures; `up` tries to install agent CLIs first so the container remains useful.
 - Secret redaction is deliberately simple (`TOKEN=`/`KEY=` line patterns); avoid printing env-file contents in errors elsewhere.
 
