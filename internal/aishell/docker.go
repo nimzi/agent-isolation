@@ -77,14 +77,14 @@ func (d Docker) Require() error {
 func (d Docker) ContainerExists(name string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 20*time.Second))
 	defer cancel()
-	_, err := d.runCapture(ctx, "inspect", name)
+	_, err := d.runCapture(ctx, "inspect", "--type=container", name)
 	return err == nil
 }
 
 func (d Docker) ContainerRunning(name string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 20*time.Second))
 	defer cancel()
-	out, err := d.runCapture(ctx, "inspect", "-f", "{{.State.Running}}", name)
+	out, err := d.runCapture(ctx, "inspect", "--type=container", "-f", "{{.State.Running}}", name)
 	if err != nil {
 		return false
 	}
@@ -120,7 +120,7 @@ func (ic InspectContainer) Workdir() string {
 func (d Docker) InspectContainer(name string) (InspectContainer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 20*time.Second))
 	defer cancel()
-	out, err := d.runCapture(ctx, "inspect", name)
+	out, err := d.runCapture(ctx, "inspect", "--type=container", name)
 	if err != nil {
 		return InspectContainer{}, fmt.Errorf("docker inspect %q failed: %w", name, err)
 	}
@@ -194,7 +194,7 @@ func (d Docker) ExecTty(container string, args ...string) error {
 func (d Docker) InspectMounts(container string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), orDefault(d.Timeout, 20*time.Second))
 	defer cancel()
-	return d.runCapture(ctx, "inspect", "-f", "{{range .Mounts}}{{println .Type .Source \"->\" .Destination}}{{end}}", container)
+	return d.runCapture(ctx, "inspect", "--type=container", "-f", "{{range .Mounts}}{{println .Type .Source \"->\" .Destination}}{{end}}", container)
 }
 
 func (d Docker) PSNamesByLabel(key, val string) ([]string, error) {
