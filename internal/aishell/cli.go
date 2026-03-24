@@ -1006,21 +1006,27 @@ func newRmCmd(cfg *Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if removeVolume {
+					composeDir := filepath.Join(inst.Workdir, ".ai-shell")
+					compose, err := NewCompose(getRuntimeMode(), composeDir)
+					if err != nil {
+						return err
+					}
+					if err := compose.DownVolumes(); err != nil {
+						return fmt.Errorf("compose down -v failed: %w", err)
+					}
+					fmt.Printf("OK: removed container %q.\n", inst.Container)
+					fmt.Printf("OK: removed /root volume for workdir %q.\n", inst.Workdir)
+					return nil
+				}
 				_ = d.Stop(inst.Container)
 				_ = d.Remove(inst.Container)
 				fmt.Printf("OK: removed container %q.\n", inst.Container)
-				if removeVolume {
-					if strings.TrimSpace(inst.Volume) == "" {
-						return fmt.Errorf("cannot remove volume: missing %s label on container %q", LabelVolume, inst.Container)
-					}
-					_ = d.RemoveVolume(inst.Volume)
-					fmt.Printf("OK: removed volume %q.\n", inst.Volume)
-				}
 				return nil
 			}
 
 			// Default: rm the instance derived from --workdir (or cwd).
-			workdir, _, container, _, volume, err := resolveInstance(cfg)
+			workdir, _, container, _, _, err := resolveInstance(cfg)
 			if err != nil {
 				return err
 			}
@@ -1031,13 +1037,22 @@ func newRmCmd(cfg *Config) *cobra.Command {
 			if err := requireManaged(d, container, workdir); err != nil {
 				return err
 			}
+			if removeVolume {
+				composeDir := filepath.Join(workdir, ".ai-shell")
+				compose, err := NewCompose(getRuntimeMode(), composeDir)
+				if err != nil {
+					return err
+				}
+				if err := compose.DownVolumes(); err != nil {
+					return fmt.Errorf("compose down -v failed: %w", err)
+				}
+				fmt.Printf("OK: removed container %q.\n", container)
+				fmt.Printf("OK: removed /root volume for workdir %q.\n", workdir)
+				return nil
+			}
 			_ = d.Stop(container)
 			_ = d.Remove(container)
 			fmt.Printf("OK: removed container %q.\n", container)
-			if removeVolume {
-				_ = d.RemoveVolume(volume)
-				fmt.Printf("OK: removed volume %q.\n", volume)
-			}
 			return nil
 		},
 	}
