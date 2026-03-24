@@ -2,14 +2,14 @@
 
 [![CI](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml/badge.svg)](https://github.com/nimzi/agent-isolation/actions/workflows/ci.yml)
 
-**Current version: 0.1.13**
+**Current version: 0.1.14**
 
 Containerized AI agent CLIs (`cursor-agent` and `claude`) with a persistent `/root` volume and your project mounted at `/work`.
 
 ## What you get
 
 - **Agent CLI(s)**: `cursor-agent` and `claude` (Claude Code) installed into the persistent `/root` volume so they survive rebuilds
-- **Host auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) and Claude config (`$HOME/.claude`) into the container (read-only)
+- **Host auth reuse**: mounts your host Cursor config (`$HOME/.config/cursor`) into the container (read-only); Claude Code credentials live in the persistent `/root` volume — authenticate once inside the container
 - **Dev tools**: `git`, `gh`, `curl`, etc. (installed at **image build time** via family-specific Dockerfile templates; `.ai-shell/bootstrap-tools.sh` is an optional empty hook for extra **runtime** installs on each `ai-shell up`)
 - **Persistent state**: `/root` is a named Docker volume; `/work` is your bind-mounted project directory
 - **Per-project customization**: each project gets its own `.ai-shell/` directory with Dockerfile and scripts
@@ -34,7 +34,7 @@ If the install step fails, `ai-shell up` will warn (but still succeeds). To skip
 
 #### Claude Code CLI
 
-Claude Code CLI reads credentials from your host's `~/.claude` directory. If you have Claude Code installed and authenticated on the host, credentials are mounted read-only into the container.
+Claude Code CLI stores credentials in `~/.claude` inside the container, which lives in the persistent `/root` named volume. Authenticate once inside the container and credentials will persist across rebuilds.
 
 On first container creation, `ai-shell up` tries to install `claude` inside the container automatically (best-effort) by running:
 
@@ -194,7 +194,7 @@ This script will:
 - Mount your project directory to `/work`
 - Create a persistent volume for `/root` (home directory)
 - Mount your Cursor credentials from `$HOME/.config/cursor` to `/root/.config/cursor` (read-only)
-- Mount your Claude credentials from `$HOME/.claude` to `/root/.claude` (read-only)
+
 - Run `.ai-shell/bootstrap-tools.sh` (empty by default; optional place for extra runtime setup)
 
 ### Base image selection (Dockerfile FROM)
@@ -270,7 +270,6 @@ docker run -d \
   -v "$(pwd)":/work \
   -v "<volume_from_ai_shell_instance>":/root \
   -v "$HOME/.config/cursor":/root/.config/cursor:ro \
-  -v "$HOME/.claude":/root/.claude:ro \
   --env-file "$HOME/.config/ai-shell/.env" \
   ai-agent-shell-<iid>
 ```
@@ -377,9 +376,8 @@ claude --version
 - Credentials are read-only mounted (changes in container don't affect host)
 
 ### Claude Code CLI
-- Credentials mounted from `$HOME/.claude` on host to `/root/.claude` in container (read-only)
-- If you have Claude Code installed and authenticated on the host, it works automatically
-- Alternatively, authenticate inside the container: `claude` will prompt for login on first use
+- Credentials live in `/root/.claude` inside the container (part of the persistent `/root` named volume)
+- Authenticate once inside the container: `claude` will prompt for login on first use; credentials persist across rebuilds
 - You can also set `ANTHROPIC_API_KEY` in your env file for API-key-based auth
 
 ### Git + GitHub CLI (inside container)

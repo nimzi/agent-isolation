@@ -4,7 +4,7 @@ This document summarizes the **internal invariants** and **runtime contract** of
 
 ## What `ai-shell` is
 
-`ai-shell` manages **one container + one persistent `/root` volume per workdir**. The project workdir is bind-mounted to `/work`. Host Cursor credentials are mounted **read-only** into `/root/.config/cursor`. Host Claude credentials are mounted **read-only** into `/root/.claude`.
+`ai-shell` manages **one container + one persistent `/root` volume per workdir**. The project workdir is bind-mounted to `/work`. Host Cursor credentials are mounted **read-only** into `/root/.config/cursor`. Claude Code credentials live in the persistent `/root` named volume (`/root/.claude`) — the user authenticates once inside the container.
 
 The container image is built from `.ai-shell/Dockerfile`, which is rendered from a **family-specific template** (`apt`, `dnf`, `zypper`, or `apk`) embedded in the `ai-shell` binary. The chosen family comes from the **base image alias** in global config (each alias maps to a Docker image ref plus a family). Core packages are installed at **image build time** via that template. The container runs as a long-lived “toolbox” (`tail -f /dev/null`) that you enter via `ai-shell enter`.
 
@@ -184,7 +184,7 @@ Main behavior (`newUpCmd()` in `internal/aishell/cli.go`):
 - Ensure host cursor dir exists (`ensureCursorConfigDir()` creates it if missing)
 - Resolve env-file args and print a warning if none/disabled
 - If `--recreate` and container exists: stop+remove the container
-- `docker compose up` (with `--build` unless `--no-build`): when building, resolve `BASE_IMAGE` from the chosen **alias** via `chooseBaseImage` / `resolveBaseImage` (bare image refs are rejected) and pass it as a build-arg; the checked-in Dockerfile was generated for that alias’s family at `init` time. The running service gets labels (managed/workdir/iid/volume), bind mounts (`<workdir>:/work`, `<cursorDir>:/root/.config/cursor:ro`, `<claudeDir>:/root/.claude:ro`), the named `<volume>:/root`, optional `--env-file` injection, and the project image.
+- `docker compose up` (with `--build` unless `--no-build`): when building, resolve `BASE_IMAGE` from the chosen **alias** via `chooseBaseImage` / `resolveBaseImage` (bare image refs are rejected) and pass it as a build-arg; the checked-in Dockerfile was generated for that alias’s family at `init` time. The running service gets labels (managed/workdir/iid/volume), bind mounts (`<workdir>:/work`, `<cursorDir>:/root/.config/cursor:ro`), the named `<volume>:/root`, optional `--env-file` injection, and the project image.
 - After the container is up: run `/work/.ai-shell/bootstrap-tools.sh` (embedded as an **empty** hook; add commands for optional runtime-only steps)
 - Install `cursor-agent` unless `--no-install` or `--no-install-cursor`:
   - checks `command -v cursor-agent`
@@ -232,7 +232,7 @@ Sanity checks (must be running):
 - `cursor-agent` exists and responds to `--help`
 - `/root/.config/cursor` mount is present/readable
 - `claude` (Claude Code) exists and responds to `--version`
-- `/root/.claude` is present/readable
+- `/root/.claude` is present (populated by in-container `claude` authentication)
 - prints `gh auth status` output (redacting simple `TOKEN=`/`KEY=` patterns)
 
 ### `instance`
