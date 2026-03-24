@@ -733,7 +733,7 @@ func newCheckCmd(cfg *Config) *cobra.Command {
 			}
 
 			if _, err := d.ExecCapture(container, "ls -la /root/.claude/ 2>/dev/null | head -50"); err != nil {
-				warnf("Warning: /root/.claude is missing; authenticate with 'claude' inside the container or mount host ~/.claude\n")
+				warnf("Warning: /root/.claude is missing; run 'claude' inside the container to authenticate\n")
 			} else {
 				fmt.Println("OK: /root/.claude is present.")
 			}

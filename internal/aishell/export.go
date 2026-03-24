@@ -151,7 +151,6 @@ func generateComposeYAML(iid, container, image, volume, baseImage string) string
 	sb.WriteString("      - ..:/work                           # parent dir = workdir (source of truth)\n")
 	sb.WriteString(fmt.Sprintf("      - %s:/root\n", volume))
 	sb.WriteString("      - ${HOME}/.config/cursor:/root/.config/cursor:ro\n")
-	sb.WriteString("      - ${HOME}/.claude:/root/.claude:ro\n")
 	sb.WriteString("    env_file:\n")
 	sb.WriteString("      - path: ${AI_SHELL_ENV_FILE:-/dev/null}\n")
 	sb.WriteString("        required: false\n")
@@ -216,7 +215,7 @@ ai-shell stop
 - Scripts are accessed from `+"`/work/.ai-shell/`"+` (this directory, mounted)
 - The `+"`/root`"+` directory is persisted in a named volume
 - Cursor config is mounted read-only from `+"`~/.config/cursor`"+`
-- Claude config is mounted read-only from `+"`~/.claude`"+`
+- Claude Code credentials live in the `+"`/root`"+` named volume — run `+"`claude`"+` inside the container to authenticate
 - The `+"`ai-shell`"+` CLI commands (`+"`ai-shell status`"+`, `+"`ai-shell enter`"+`, etc.) work with this container
 - Set `+"`AI_SHELL_ENV_FILE`"+` environment variable to inject secrets (e.g., `+"`GH_TOKEN`"+`)
 
